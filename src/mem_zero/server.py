@@ -126,6 +126,15 @@ async def remove_all_memories(slug: str = Path(...)) -> dict[str, int]:
     return {"deleted": count}
 
 
+@app.delete("/api/v1/projects/{slug}")
+async def remove_project(slug: str = Path(...)) -> dict[str, bool]:
+    slug = _validated_slug(slug)
+    removed = await engine.delete_project(slug)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"deleted": True}
+
+
 _static_dir = FilePath(__file__).parent / "static"
 if _static_dir.is_dir():
     app.mount("/", StaticFiles(directory=_static_dir, html=True), name="static")

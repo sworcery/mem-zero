@@ -379,6 +379,15 @@ class MemoryEngine:
         await self._ensure_collection(project_slug)
         return count
 
+    async def delete_project(self, project_slug: str) -> bool:
+        collection = self._config.collection_name(project_slug)
+        existing = {c.name for c in (await self._qdrant.get_collections()).collections}
+        if collection not in existing:
+            return False
+        await self._qdrant.delete_collection(collection)
+        self._ensured_collections.discard(collection)
+        return True
+
     async def list_projects(self) -> list[ProjectInfo]:
         prefix = f"{self._config.collection_prefix}_"
         projects: list[ProjectInfo] = []
