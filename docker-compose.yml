@@ -1,0 +1,20 @@
+services:
+  mem-zero:
+    image: 192.168.1.10:5000/mem-zero:dev
+    container_name: mem-zero
+    ports:
+      - "8765:8765"
+    volumes:
+      - mem-zero-storage:/mem0/storage
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - EMBEDDER_MODEL=nomic-embed-text
+      - EMBEDDER_DIMENSIONS=768
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    restart: unless-stopped
+
+volumes:
+  mem-zero-storage:
