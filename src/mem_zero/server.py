@@ -51,6 +51,24 @@ async def health() -> dict[str, str]:
         raise HTTPException(status_code=503, detail="Service unavailable") from exc
 
 
+@app.get("/debug/config")
+async def debug_config() -> dict[str, object]:
+    return {
+        "ollama_base_url": config.ollama_base_url,
+        "llm_model": config.llm_model,
+        "embedder_model": config.embedder_model,
+    }
+
+
+@app.get("/debug/ollama")
+async def debug_ollama() -> dict[str, object]:
+    try:
+        resp = await engine._http.get("/api/tags")
+        return {"status": resp.status_code, "url": str(engine._http.base_url)}
+    except Exception as exc:
+        return {"error": str(exc), "url": str(engine._http.base_url)}
+
+
 @app.get("/api/v1/projects")
 async def list_projects() -> list[ProjectInfo]:
     return await engine.list_projects()
