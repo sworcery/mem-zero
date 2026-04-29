@@ -711,12 +711,12 @@
     </div>
     <div id="sidebar-footer">
       <div class="footer-row">
-        <span class="footer-label">LLM</span>
-        <span class="footer-value" id="footer-model">—</span>
+        <span class="footer-label">Backend</span>
+        <span class="footer-value" id="footer-backend">—</span>
       </div>
       <div class="footer-row">
-        <span class="footer-label">Embed</span>
-        <span class="footer-value" id="footer-embedder">—</span>
+        <span class="footer-label">Dims</span>
+        <span class="footer-value" id="footer-dims">—</span>
       </div>
     </div>
   </nav>
@@ -829,8 +829,8 @@
   const refreshBtn    = $('refresh-btn');
   const healthDot     = $('health-dot');
   const statusText    = $('status-text');
-  const footerModel   = $('footer-model');
-  const footerEmbed   = $('footer-embedder');
+  const footerBackend = $('footer-backend');
+  const footerDims    = $('footer-dims');
   const modalBackdrop = $('modal-backdrop');
   const modalTitle    = $('modal-title');
   const modalBody     = $('modal-body');
@@ -1180,8 +1180,8 @@
   async function loadConfig() {
     try {
       const cfg = await API.config();
-      footerModel.textContent   = cfg.llm_model       || '—';
-      footerEmbed.textContent   = cfg.embedder_model   || '—';
+      footerBackend.textContent = cfg.llm_backend         || '—';
+      footerDims.textContent    = cfg.embedding_dimensions || '—';
     } catch(_) {}
   }
 

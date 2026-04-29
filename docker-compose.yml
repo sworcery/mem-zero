@@ -7,9 +7,20 @@ services:
     volumes:
       - mem-zero-storage:/mem0/storage
     environment:
-      - OLLAMA_BASE_URL=http://192.168.1.10:11434
-      - LLM_MODEL=qwen2.5:7b
-      - EMBEDDER_MODEL=nomic-embed-text
+      # Backend: "bundled" (default, self-contained), "ollama", or "openai"
+      # Auto-detected from env vars if not set explicitly.
+      # - LLM_BACKEND=bundled
+
+      # Ollama settings (only used when LLM_BACKEND=ollama)
+      # - OLLAMA_BASE_URL=http://192.168.1.10:11434
+      # - LLM_MODEL=qwen2.5:7b
+      # - EMBEDDER_MODEL=nomic-embed-text
+
+      # OpenAI settings (only used when LLM_BACKEND=openai)
+      # - OPENAI_API_KEY=sk-...
+      # - OPENAI_BASE_URL=https://api.openai.com/v1
+      # - OPENAI_MODEL=gpt-4o-mini
+
       - EMBEDDER_DIMENSIONS=768
       # - DASHBOARD_USER=admin
       # - DASHBOARD_PASS=changeme

@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Path, Query, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from .backends import create_backend
 from .config import Config, validate_slug
 from .mcp_server import mcp_router, set_engine
 from .memory_engine import MemoryEngine
@@ -18,7 +19,8 @@ from .models import MemoryCreate, MemoryRecord, ProjectInfo, SearchRequest
 logger = logging.getLogger(__name__)
 
 config = Config.from_env()
-engine = MemoryEngine(config)
+backend = create_backend(config)
+engine = MemoryEngine(config, backend)
 set_engine(engine)
 
 
@@ -100,20 +102,21 @@ async def health() -> dict[str, str]:
 
 @app.get("/debug/config")
 async def debug_config() -> dict[str, object]:
-    return {
-        "ollama_base_url": config.ollama_base_url,
-        "llm_model": config.llm_model,
-        "embedder_model": config.embedder_model,
-    }
-
-
-@app.get("/debug/ollama")
-async def debug_ollama() -> dict[str, object]:
-    try:
-        resp = await engine._http.get("/api/tags")
-        return {"status": resp.status_code, "url": str(engine._http.base_url)}
-    except Exception as exc:
-        return {"error": str(exc), "url": str(engine._http.base_url)}
+    info: dict[str, object] = {"llm_backend": config.llm_backend}
+    if config.llm_backend == "ollama":
+        info["ollama_base_url"] = config.ollama_base_url
+        info["llm_model"] = config.llm_model
+        info["embedder_model"] = config.embedder_model
+    elif config.llm_backend == "openai":
+        info["openai_base_url"] = config.openai_base_url
+        info["openai_model"] = config.openai_model
+        info["openai_embed_model"] = config.openai_embed_model
+    else:
+        info["bundled_model_path"] = config.bundled_model_path
+        info["bundled_embed_model"] = config.bundled_embed_model
+        info["bundled_threads"] = config.bundled_threads
+    info["embedding_dimensions"] = backend.embedding_dimensions
+    return info
 
 
 @app.get("/api/v1/projects")

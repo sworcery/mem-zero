@@ -2,7 +2,7 @@
 
 Project-isolated MCP memory server for Claude Code. Each project gets its own Qdrant vector collection — no cross-pollination between projects.
 
-When you store a memory, the text is sent through an LLM (Ollama) to extract atomic facts, deduplicate against existing memories, and embed for semantic search. The result is a clean, searchable memory store per project.
+When you store a memory, the text is sent through an LLM to extract atomic facts, deduplicate against existing memories, and embed for semantic search. The result is a clean, searchable memory store per project.
 
 ## How it works
 
@@ -15,9 +15,35 @@ Claude Code projects connect via MCP at `/mcp/{project-slug}/http/{user-id}`. Th
 3. Each fact is checked against existing memories for duplicates
 4. Novel facts are embedded and stored; duplicates are merged or skipped
 
-**Stack:** FastAPI + Qdrant (bundled) + Ollama (external) + s6-overlay (process supervision)
+## LLM backends
+
+mem-zero supports three LLM backends. The default is **bundled** — no external dependencies needed.
+
+| Backend | LLM | Embeddings | Setup |
+|---------|-----|------------|-------|
+| **bundled** (default) | Qwen2.5-3B (built-in) | nomic-embed-text via fastembed | Zero config — just run the container |
+| **ollama** | Any Ollama model | Any Ollama embedding model | Set `OLLAMA_BASE_URL` |
+| **openai** | Any OpenAI-compatible API | Any OpenAI-compatible embeddings | Set `OPENAI_API_KEY` |
+
+**Auto-detection:** If `LLM_BACKEND` is not set, the backend is chosen automatically:
+- `OPENAI_API_KEY` present → `openai`
+- `OLLAMA_BASE_URL` present → `ollama`
+- Neither → `bundled`
+
+**Fallback:** When using `ollama`, if the Ollama server is unreachable, requests automatically fall back to the bundled model. The fallback is lazy — the bundled model only loads into memory on the first failure.
 
 ## Quick start (Docker)
+
+```bash
+# Self-contained — no external LLM needed
+docker run -d \
+  --name mem-zero \
+  -p 8765:8765 \
+  -v mem-zero-data:/mem0/storage \
+  192.168.1.10:5000/mem-zero:dev
+```
+
+With Ollama:
 
 ```bash
 docker run -d \
@@ -29,31 +55,12 @@ docker run -d \
   192.168.1.10:5000/mem-zero:dev
 ```
 
-Or with docker-compose:
-
-```yaml
-services:
-  mem-zero:
-    image: 192.168.1.10:5000/mem-zero:dev
-    ports:
-      - "8765:8765"
-    volumes:
-      - mem-zero-storage:/mem0/storage
-    environment:
-      - OLLAMA_BASE_URL=http://your-ollama-host:11434
-      - LLM_MODEL=qwen2.5:7b
-    restart: unless-stopped
-
-volumes:
-  mem-zero-storage:
-```
-
 ## Connecting Claude Code
 
 Add the MCP server to your project:
 
 ```bash
-claude mcp add mem0 --transport http \
+claude mcp add mem-zero --transport http \
   "http://your-host:8765/mcp/your-project-slug/http/your-user-id" \
   -s local
 ```
@@ -66,6 +73,7 @@ A management UI is served at the root URL (`http://your-host:8765/`). From the d
 
 - Browse all projects and their memory counts
 - View, search, and delete memories per project
+- Delete entire projects
 - Add new memories manually
 
 ## MCP tools
@@ -95,21 +103,51 @@ DELETE /api/v1/projects/{slug}                    — delete entire project
 
 All settings are via environment variables.
 
+### General
+
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama API URL |
-| `LLM_MODEL` | `qwen2.5:7b` | Model for fact extraction and dedup |
-| `EMBEDDER_MODEL` | `nomic-embed-text` | Embedding model |
+| `LLM_BACKEND` | auto-detect | `bundled`, `ollama`, or `openai` |
 | `EMBEDDER_DIMENSIONS` | `768` | Vector dimensions |
-| `QDRANT_HOST` | `127.0.0.1` | Qdrant host (bundled) |
-| `QDRANT_PORT` | `6333` | Qdrant port |
-| `QDRANT_URL` | — | Full Qdrant URL (overrides host/port) |
-| `QDRANT_API_KEY` | — | Qdrant API key (if using external) |
 | `COLLECTION_PREFIX` | `mem0` | Qdrant collection name prefix |
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `8765` | Server port |
 | `DASHBOARD_USER` | — | Dashboard login username (auth disabled if empty) |
 | `DASHBOARD_PASS` | — | Dashboard login password |
+
+### Bundled backend
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `BUNDLED_MODEL_PATH` | `/app/models/qwen2.5-3b-instruct-q4_k_m.gguf` | Path to GGUF model |
+| `BUNDLED_EMBED_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | fastembed model name |
+| `BUNDLED_THREADS` | `4` | CPU threads for inference |
+
+### Ollama backend
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama API URL |
+| `LLM_MODEL` | `qwen2.5:7b` | Model for fact extraction and dedup |
+| `EMBEDDER_MODEL` | `nomic-embed-text` | Embedding model |
+
+### OpenAI backend
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OPENAI_API_KEY` | — | API key (required) |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | API base URL |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Chat model |
+| `OPENAI_EMBED_MODEL` | `text-embedding-3-small` | Embedding model |
+
+### Qdrant
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `QDRANT_HOST` | `127.0.0.1` | Qdrant host (bundled) |
+| `QDRANT_PORT` | `6333` | Qdrant port |
+| `QDRANT_URL` | — | Full Qdrant URL (overrides host/port) |
+| `QDRANT_API_KEY` | — | Qdrant API key (if using external) |
 
 ## Architecture
 
@@ -117,7 +155,9 @@ The container bundles everything into a single image using s6-overlay for proces
 
 - **Qdrant** — embedded vector database, data persisted to `/mem0/storage`
 - **FastAPI** — HTTP server handling MCP transport, REST API, and static dashboard
-- **Ollama** — external dependency for LLM inference and embeddings (not bundled)
+- **Qwen2.5-3B** — bundled LLM for fact extraction and dedup (CPU-only, ~1.8 GB RAM)
+- **fastembed** — bundled embedding model (nomic-embed-text, ~270 MB)
+
+External LLMs (Ollama, OpenAI) are supported as alternatives. When using Ollama, the bundled model serves as an automatic fallback if Ollama is unreachable.
 
 Project isolation is enforced at the Qdrant collection level. Each project slug maps to `{prefix}_{slug}`, and all queries are scoped to a single collection.
-

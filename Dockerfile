@@ -18,6 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
+    build-essential \
+    cmake \
     libunwind8 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -44,9 +46,27 @@ RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
+
+# Install Python dependencies (cached unless pyproject.toml changes)
 COPY pyproject.toml .
+RUN python3 -c "\
+import tomllib, pathlib; \
+deps = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['dependencies']; \
+print('\n'.join(deps))" > /tmp/deps.txt && \
+    pip install -r /tmp/deps.txt && rm /tmp/deps.txt
+
+# Download bundled GGUF model (~1.8 GB, cached in its own layer)
+RUN mkdir -p /app/models && \
+    curl -fSL --retry 3 -o /app/models/qwen2.5-3b-instruct-q4_k_m.gguf \
+    "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf"
+
+# Pre-download fastembed embedding model (~270 MB, cached)
+ENV FASTEMBED_CACHE_PATH=/app/models/fastembed
+RUN python3 -c "from fastembed import TextEmbedding; TextEmbedding('nomic-ai/nomic-embed-text-v1.5')"
+
+# Install the package (re-runs on source changes but skips dep download)
 COPY src/ src/
-RUN pip install .
+RUN pip install --no-deps .
 
 COPY rootfs/ /
 RUN find /etc/cont-init.d -type f -exec chmod +x {} \; && \
@@ -56,12 +76,11 @@ ENV QDRANT__STORAGE__STORAGE_PATH=/mem0/storage/qdrant
 ENV QDRANT__TELEMETRY_DISABLED=true
 ENV QDRANT_HOST=127.0.0.1
 ENV QDRANT_PORT=6333
-ENV OLLAMA_BASE_URL=http://192.168.1.10:11434
-ENV LLM_MODEL=qwen2.5:7b
-ENV EMBEDDER_MODEL=nomic-embed-text
 ENV EMBEDDER_DIMENSIONS=768
 ENV HOST=0.0.0.0
 ENV PORT=8765
+ENV BUNDLED_MODEL_PATH=/app/models/qwen2.5-3b-instruct-q4_k_m.gguf
+ENV BUNDLED_EMBED_MODEL=nomic-ai/nomic-embed-text-v1.5
 
 VOLUME ["/mem0/storage"]
 EXPOSE 8765 6333

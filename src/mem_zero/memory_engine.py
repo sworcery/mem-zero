@@ -6,7 +6,6 @@ import logging
 import time
 import uuid
 
-import httpx
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
@@ -17,6 +16,7 @@ from qdrant_client.models import (
     VectorParams,
 )
 
+from .backends import LLMBackend
 from .config import Config
 from .models import MemoryRecord, ProjectInfo
 
@@ -78,12 +78,9 @@ def validate_memory_id(value: str) -> str:
 
 
 class MemoryEngine:
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, backend: LLMBackend) -> None:
         self._config = config
-        self._http = httpx.AsyncClient(
-            base_url=config.ollama_base_url,
-            timeout=30.0,
-        )
+        self._backend = backend
 
         if config.qdrant_url:
             self._qdrant = AsyncQdrantClient(
@@ -100,7 +97,7 @@ class MemoryEngine:
         self._lock = asyncio.Lock()
 
     async def close(self) -> None:
-        await self._http.aclose()
+        await self._backend.close()
         await self._qdrant.close()
 
     async def _ensure_collection(self, project_slug: str) -> str:
@@ -120,7 +117,7 @@ class MemoryEngine:
                 await self._qdrant.create_collection(
                     collection_name=name,
                     vectors_config=VectorParams(
-                        size=self._config.embedding_dimensions,
+                        size=self._backend.embedding_dimensions,
                         distance=Distance.COSINE,
                     ),
                 )
@@ -133,28 +130,11 @@ class MemoryEngine:
         await self._qdrant.get_collections()
         return True
 
-    async def _llm_generate(self, system: str, user: str) -> str:
-        try:
-            resp = await self._http.post(
-                "/api/chat",
-                json={
-                    "model": self._config.llm_model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    "stream": False,
-                    "format": "json",
-                },
-                timeout=120.0,
-            )
-            resp.raise_for_status()
-            return resp.json()["message"]["content"]
-        except (httpx.HTTPError, KeyError) as exc:
-            raise LLMError(f"Ollama LLM call failed: {exc}") from exc
-
     async def _extract_facts(self, text: str) -> list[str]:
-        raw = await self._llm_generate(EXTRACT_PROMPT, text)
+        try:
+            raw = await self._backend.generate(EXTRACT_PROMPT, text)
+        except Exception as exc:
+            raise LLMError(f"Fact extraction failed: {exc}") from exc
         try:
             parsed = json.loads(raw)
             if isinstance(parsed, dict) and "facts" in parsed:
@@ -180,7 +160,10 @@ class MemoryEngine:
             return "add", None, None
 
         prompt = DEDUP_PROMPT.format(existing=existing_lines, new_fact=fact)
-        raw = await self._llm_generate(prompt, "")
+        try:
+            raw = await self._backend.generate(prompt, "")
+        except Exception:
+            return "add", None, None
         try:
             result = json.loads(raw)
             action = result.get("action", "add")
@@ -195,7 +178,7 @@ class MemoryEngine:
     async def search_in_collection(
         self, collection: str, query: str, top_k: int = 10, user_id: str | None = None
     ) -> list[MemoryRecord]:
-        vectors = await self.embed([query])
+        vectors = await self._backend.embed([query])
         query_filter = None
         if user_id:
             query_filter = Filter(
@@ -224,18 +207,6 @@ class MemoryEngine:
             )
             for hit in results
         ]
-
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        try:
-            resp = await self._http.post(
-                "/api/embed",
-                json={"model": self._config.embedder_model, "input": texts},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data["embeddings"]
-        except (httpx.HTTPError, KeyError) as exc:
-            raise EmbeddingError(f"Ollama embedding failed: {exc}") from exc
 
     async def add(
         self,
@@ -271,7 +242,7 @@ class MemoryEngine:
 
             if action == "update" and update_id:
                 text_to_store = merged_text or fact
-                vectors = await self.embed([text_to_store])
+                vectors = await self._backend.embed([text_to_store])
                 try:
                     validate_memory_id(update_id)
                     await self._qdrant.upsert(
@@ -297,7 +268,7 @@ class MemoryEngine:
                     action = "add"
 
             if action == "add":
-                vectors = await self.embed([fact])
+                vectors = await self._backend.embed([fact])
                 point_id = str(uuid.uuid4())
                 ids.append(point_id)
                 await self._qdrant.upsert(
