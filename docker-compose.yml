@@ -8,7 +8,7 @@ services:
       - mem-zero-storage:/mem0/storage
     environment:
       - OLLAMA_BASE_URL=http://192.168.1.10:11434
-      - LLM_MODEL=qwen2.5:32b
+      - LLM_MODEL=qwen2.5:7b
       - EMBEDDER_MODEL=nomic-embed-text
       - EMBEDDER_DIMENSIONS=768
     extra_hosts:

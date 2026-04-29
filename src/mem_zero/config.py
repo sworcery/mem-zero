@@ -27,7 +27,7 @@ class Config:
     qdrant_api_key: str | None = None
 
     ollama_base_url: str = "http://127.0.0.1:11434"
-    llm_model: str = "qwen2.5:32b"
+    llm_model: str = "qwen2.5:7b"
     embedder_model: str = "nomic-embed-text"
     embedding_dimensions: int = 768
 
@@ -59,7 +59,7 @@ class Config:
             qdrant_url=_opt("QDRANT_URL"),
             qdrant_api_key=_opt("QDRANT_API_KEY"),
             ollama_base_url=_str("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
-            llm_model=_str("LLM_MODEL", "qwen2.5:32b"),
+            llm_model=_str("LLM_MODEL", "qwen2.5:7b"),
             embedder_model=_str("EMBEDDER_MODEL", "nomic-embed-text"),
             embedding_dimensions=_int("EMBEDDER_DIMENSIONS", 768),
             collection_prefix=_str("COLLECTION_PREFIX", "mem0"),

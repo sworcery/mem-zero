@@ -25,7 +25,7 @@ docker run -d \
   -p 8765:8765 \
   -v mem-zero-data:/mem0/storage \
   -e OLLAMA_BASE_URL=http://your-ollama-host:11434 \
-  -e LLM_MODEL=qwen2.5:32b \
+  -e LLM_MODEL=qwen2.5:7b \
   192.168.1.10:5000/mem-zero:dev
 ```
 
@@ -41,7 +41,7 @@ services:
       - mem-zero-storage:/mem0/storage
     environment:
       - OLLAMA_BASE_URL=http://your-ollama-host:11434
-      - LLM_MODEL=qwen2.5:32b
+      - LLM_MODEL=qwen2.5:7b
     restart: unless-stopped
 
 volumes:
@@ -97,7 +97,7 @@ All settings are via environment variables.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama API URL |
-| `LLM_MODEL` | `qwen2.5:32b` | Model for fact extraction and dedup |
+| `LLM_MODEL` | `qwen2.5:7b` | Model for fact extraction and dedup |
 | `EMBEDDER_MODEL` | `nomic-embed-text` | Embedding model |
 | `EMBEDDER_DIMENSIONS` | `768` | Vector dimensions |
 | `QDRANT_HOST` | `127.0.0.1` | Qdrant host (bundled) |

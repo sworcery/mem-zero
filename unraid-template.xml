@@ -18,7 +18,7 @@
   <Config Name="Qdrant Port" Target="6333" Default="" Mode="tcp" Description="Qdrant API port (optional, for direct access)" Type="Port" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="Storage" Target="/mem0/storage" Default="/mnt/user/appdata/mem-zero" Mode="rw" Description="Persistent storage for Qdrant data" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/mem-zero</Config>
   <Config Name="Ollama URL" Target="OLLAMA_BASE_URL" Default="http://192.168.1.10:11434" Mode="" Description="Ollama API base URL" Type="Variable" Display="always" Required="true" Mask="false">http://192.168.1.10:11434</Config>
-  <Config Name="LLM Model" Target="LLM_MODEL" Default="qwen2.5:32b" Mode="" Description="Ollama language model for memory extraction" Type="Variable" Display="always" Required="true" Mask="false">qwen2.5:32b</Config>
+  <Config Name="LLM Model" Target="LLM_MODEL" Default="qwen2.5:7b" Mode="" Description="Ollama language model for memory extraction" Type="Variable" Display="always" Required="true" Mask="false">qwen2.5:7b</Config>
   <Config Name="Embedder Model" Target="EMBEDDER_MODEL" Default="nomic-embed-text" Mode="" Description="Ollama embedding model name" Type="Variable" Display="always" Required="false" Mask="false">nomic-embed-text</Config>
   <Config Name="Embedder Dimensions" Target="EMBEDDER_DIMENSIONS" Default="768" Mode="" Description="Embedding vector dimensions" Type="Variable" Display="always" Required="false" Mask="false">768</Config>
 </Container>
