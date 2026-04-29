@@ -35,7 +35,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-_OPEN_PREFIXES = ("/api/", "/mcp/", "/health", "/debug/")
+_OPEN_PREFIXES = ("/api/", "/mcp/", "/health", "/debug/", "/icon.jpg")
 
 
 class DashboardAuthMiddleware(BaseHTTPMiddleware):

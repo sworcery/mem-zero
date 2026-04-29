@@ -121,16 +121,3 @@ The container bundles everything into a single image using s6-overlay for proces
 
 Project isolation is enforced at the Qdrant collection level. Each project slug maps to `{prefix}_{slug}`, and all queries are scoped to a single collection.
 
-## Migration from mem0-aio
-
-If you have existing memories in a mem0-aio instance:
-
-```bash
-# Preview what would be migrated
-docker exec mem-zero python -m mem_zero.migration --source-collection mem0 --dry-run
-
-# Run the migration
-docker exec mem-zero python -m mem_zero.migration --source-collection mem0
-```
-
-Reads the old collection, groups memories by `app_name` metadata, and copies them into per-project collections. Non-destructive — the source collection is left untouched.

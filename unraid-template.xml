@@ -10,7 +10,7 @@
   <WebUI>http://[IP]:[PORT:8765]/</WebUI>
   <Overview>Project-isolated MCP memory server with embedded Qdrant.</Overview>
   <Category>Tools:</Category>
-  <Icon/>
+  <Icon>http://192.168.1.10:8765/icon.jpg</Icon>
   <ExtraParams>--label com.centurylinklabs.watchtower.enable=true --add-host=host.docker.internal:host-gateway</ExtraParams>
   <DateInstalled/>
   <Description>Project-isolated MCP memory server with embedded Qdrant vector database, backed by Ollama embeddings.</Description>
@@ -21,6 +21,6 @@
   <Config Name="LLM Model" Target="LLM_MODEL" Default="qwen2.5:7b" Mode="" Description="Ollama language model for memory extraction" Type="Variable" Display="always" Required="true" Mask="false">qwen2.5:7b</Config>
   <Config Name="Embedder Model" Target="EMBEDDER_MODEL" Default="nomic-embed-text" Mode="" Description="Ollama embedding model name" Type="Variable" Display="always" Required="false" Mask="false">nomic-embed-text</Config>
   <Config Name="Embedder Dimensions" Target="EMBEDDER_DIMENSIONS" Default="768" Mode="" Description="Embedding vector dimensions" Type="Variable" Display="always" Required="false" Mask="false">768</Config>
-  <Config Name="Dashboard Username" Target="DASHBOARD_USER" Default="" Mode="" Description="Username for web dashboard login (leave empty to disable auth)" Type="Variable" Display="always" Required="false" Mask="false"></Config>
-  <Config Name="Dashboard Password" Target="DASHBOARD_PASS" Default="" Mode="" Description="Password for web dashboard login" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="Dashboard Username" Target="DASHBOARD_USER" Default="" Mode="" Description="Username for web dashboard login (leave empty to disable auth)" Type="Variable" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="Dashboard Password" Target="DASHBOARD_PASS" Default="" Mode="" Description="Password for web dashboard login" Type="Variable" Display="always" Required="true" Mask="true"></Config>
 </Container>

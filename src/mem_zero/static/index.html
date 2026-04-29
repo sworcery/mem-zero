@@ -756,6 +756,7 @@
         <span id="memory-count-label" style="font-size:12px; color:var(--text-faint);"></span>
         <div class="spacer"></div>
         <button class="btn btn-danger btn-sm" id="delete-all-btn">Delete All</button>
+        <button class="btn btn-danger btn-sm" id="delete-project-btn" style="margin-left:8px; opacity:0.75;" title="Delete the entire project and all its memories">Delete Project</button>
       </div>
 
       <div id="add-section">
@@ -823,7 +824,8 @@
   const searchClear   = $('search-clear');
   const addText       = $('add-text');
   const addBtn        = $('add-btn');
-  const deleteAllBtn  = $('delete-all-btn');
+  const deleteAllBtn     = $('delete-all-btn');
+  const deleteProjectBtn = $('delete-project-btn');
   const refreshBtn    = $('refresh-btn');
   const healthDot     = $('health-dot');
   const statusText    = $('status-text');
@@ -928,7 +930,8 @@
     add:        (slug, text, metadata={}) => api('POST', `/api/v1/projects/${slug}/memories`, {text, metadata}),
     search:     (slug, query, top_k=20) => api('POST', `/api/v1/projects/${slug}/search`, {query, top_k}),
     deleteOne:  (slug, id) => api('DELETE', `/api/v1/projects/${slug}/memories/${id}`),
-    deleteAll:  (slug) => api('DELETE', `/api/v1/projects/${slug}/memories`),
+    deleteAll:        (slug) => api('DELETE', `/api/v1/projects/${slug}/memories`),
+    deleteProject:    (slug) => api('DELETE', `/api/v1/projects/${slug}`),
     health:     () => api('GET', '/health'),
     config:     () => api('GET', '/debug/config'),
   };
@@ -1135,6 +1138,32 @@
     }
   }
 
+  async function deleteProject() {
+    if (!state.activeSlug) return;
+    const slug = state.activeSlug;
+    const ok = await confirm(
+      'Delete project?',
+      `This will permanently delete the project "${slug}" and all its memories. This cannot be undone.`
+    );
+    if (!ok) return;
+    deleteProjectBtn.disabled = true;
+    try {
+      await API.deleteProject(slug);
+      toast(`Project "${slug}" deleted`, 'success');
+      state.projects = state.projects.filter(p => p.slug !== slug);
+      state.activeSlug = null;
+      state.memories   = [];
+      state.searchMode = false;
+      projectView.style.display = 'none';
+      noProject.style.display   = '';
+      renderProjectList();
+    } catch(e) {
+      toast('Delete project failed: ' + e.message, 'error');
+    } finally {
+      deleteProjectBtn.disabled = false;
+    }
+  }
+
   async function checkHealth() {
     try {
       await API.health();
@@ -1212,6 +1241,9 @@
 
   // Delete all
   deleteAllBtn.addEventListener('click', deleteAll);
+
+  // Delete project
+  deleteProjectBtn.addEventListener('click', deleteProject);
 
   // Delete single (delegated)
   memoryList.addEventListener('click', e => {
