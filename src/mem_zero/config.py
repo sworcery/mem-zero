@@ -36,7 +36,7 @@ class Config:
     embedding_dimensions: int = 768
 
     # Bundled settings (used when llm_backend=bundled, also used as fallback for ollama)
-    bundled_model_path: str = "/app/models/qwen2.5-3b-instruct-q4_k_m.gguf"
+    bundled_model_path: str = "/mem0/storage/models/qwen2.5-3b-instruct-q4_k_m.gguf"
     bundled_embed_model: str = "nomic-ai/nomic-embed-text-v1.5"
     bundled_threads: int = 4
 
@@ -93,7 +93,7 @@ class Config:
             embedding_dimensions=_int("EMBEDDER_DIMENSIONS", 768),
             bundled_model_path=_str(
                 "BUNDLED_MODEL_PATH",
-                "/app/models/qwen2.5-3b-instruct-q4_k_m.gguf",
+                "/mem0/storage/models/qwen2.5-3b-instruct-q4_k_m.gguf",
             ),
             bundled_embed_model=_str(
                 "BUNDLED_EMBED_MODEL", "nomic-ai/nomic-embed-text-v1.5"

@@ -55,15 +55,6 @@ deps = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['dep
 print('\n'.join(deps))" > /tmp/deps.txt && \
     pip install -r /tmp/deps.txt && rm /tmp/deps.txt
 
-# Download bundled GGUF model (~1.8 GB, cached in its own layer)
-RUN mkdir -p /app/models && \
-    curl -fSL --retry 3 -o /app/models/qwen2.5-3b-instruct-q4_k_m.gguf \
-    "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf"
-
-# Pre-download fastembed embedding model (~270 MB, cached)
-ENV FASTEMBED_CACHE_PATH=/app/models/fastembed
-RUN python3 -c "from fastembed import TextEmbedding; TextEmbedding('nomic-ai/nomic-embed-text-v1.5')"
-
 # Install the package (re-runs on source changes but skips dep download)
 COPY src/ src/
 RUN pip install --no-deps .
@@ -79,17 +70,20 @@ ENV QDRANT_PORT=6333
 ENV EMBEDDER_DIMENSIONS=768
 ENV HOST=0.0.0.0
 ENV PORT=8765
-ENV BUNDLED_MODEL_PATH=/app/models/qwen2.5-3b-instruct-q4_k_m.gguf
+
+# Bundled model defaults (models stored on persistent volume)
+ENV BUNDLED_MODEL_PATH=/mem0/storage/models/qwen2.5-3b-instruct-q4_k_m.gguf
 ENV BUNDLED_EMBED_MODEL=nomic-ai/nomic-embed-text-v1.5
+ENV FASTEMBED_CACHE_PATH=/mem0/storage/models/fastembed
 
 VOLUME ["/mem0/storage"]
 EXPOSE 8765 6333
 
 ENV S6_KEEP_ENV=1
-ENV S6_CMD_WAIT_FOR_SERVICES_MAXTIME=300000
+ENV S6_CMD_WAIT_FOR_SERVICES_MAXTIME=600000
 ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8765/health || exit 1
 
 ENTRYPOINT ["/init"]

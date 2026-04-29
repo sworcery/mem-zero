@@ -119,7 +119,7 @@ All settings are via environment variables.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `BUNDLED_MODEL_PATH` | `/app/models/qwen2.5-3b-instruct-q4_k_m.gguf` | Path to GGUF model |
+| `BUNDLED_MODEL_PATH` | `/mem0/storage/models/qwen2.5-3b-instruct-q4_k_m.gguf` | Path to GGUF model |
 | `BUNDLED_EMBED_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | fastembed model name |
 | `BUNDLED_THREADS` | `4` | CPU threads for inference |
 
