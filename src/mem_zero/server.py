@@ -3,8 +3,10 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path as FilePath
 
 from fastapi import FastAPI, HTTPException, Path, Query
+from fastapi.staticfiles import StaticFiles
 
 from .config import Config, validate_slug
 from .mcp_server import mcp_router, set_engine
@@ -122,3 +124,8 @@ async def remove_all_memories(slug: str = Path(...)) -> dict[str, int]:
     slug = _validated_slug(slug)
     count = await engine.delete_all(slug)
     return {"deleted": count}
+
+
+_static_dir = FilePath(__file__).parent / "static"
+if _static_dir.is_dir():
+    app.mount("/", StaticFiles(directory=_static_dir, html=True), name="static")

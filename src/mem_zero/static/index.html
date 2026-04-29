@@ -1,0 +1,1259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mem-zero</title>
+  <style>
+    /* ── Reset & base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #1a1a2e;
+      --bg-mid:     #16213e;
+      --bg-card:    #0f1f3d;
+      --accent:     #0f3460;
+      --accent-hi:  #1a4a8a;
+      --danger:     #e94560;
+      --danger-hi:  #ff6080;
+      --text:       #eeeef0;
+      --text-dim:   #9999b3;
+      --text-faint: #5a5a7a;
+      --border:     #1e2f55;
+      --score-ok:   #3dd68c;
+      --score-mid:  #f7c948;
+      --score-low:  #e94560;
+      --radius:     8px;
+      --sidebar-w:  260px;
+      --topbar-h:   56px;
+      --trans:      0.18s ease;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      overflow: hidden;
+    }
+
+    /* ── Layout shell ── */
+    #app {
+      display: grid;
+      grid-template-columns: var(--sidebar-w) 1fr;
+      grid-template-rows: var(--topbar-h) 1fr;
+      height: 100vh;
+    }
+
+    /* ── Top bar ── */
+    #topbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 20px;
+      background: var(--bg-mid);
+      border-bottom: 1px solid var(--border);
+      z-index: 10;
+    }
+
+    #topbar .logo {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: var(--text);
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #topbar .logo span {
+      color: var(--danger);
+    }
+
+    #search-wrap {
+      flex: 1;
+      max-width: 480px;
+      position: relative;
+    }
+
+    #search-input {
+      width: 100%;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 13px;
+      padding: 7px 36px 7px 12px;
+      outline: none;
+      transition: border-color var(--trans);
+    }
+
+    #search-input::placeholder { color: var(--text-faint); }
+
+    #search-input:focus {
+      border-color: var(--accent-hi);
+    }
+
+    #search-clear {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--text-faint);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      padding: 2px;
+      display: none;
+      transition: color var(--trans);
+    }
+
+    #search-clear:hover { color: var(--text); }
+
+    #search-wrap.has-query #search-clear { display: block; }
+
+    #topbar-status {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+
+    .health-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-faint);
+      flex-shrink: 0;
+      transition: background var(--trans);
+    }
+
+    .health-dot.ok  { background: var(--score-ok); }
+    .health-dot.err { background: var(--danger); }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      grid-row: 2;
+      background: var(--bg-mid);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #sidebar-header {
+      padding: 14px 16px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text-faint);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    #refresh-btn {
+      background: none;
+      border: none;
+      color: var(--text-faint);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 2px 4px;
+      border-radius: 4px;
+      transition: color var(--trans), background var(--trans);
+      line-height: 1;
+    }
+
+    #refresh-btn:hover {
+      color: var(--text);
+      background: var(--border);
+    }
+
+    #refresh-btn.spinning { animation: spin 0.6s linear infinite; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #project-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 8px;
+    }
+
+    #project-list::-webkit-scrollbar { width: 4px; }
+    #project-list::-webkit-scrollbar-track { background: transparent; }
+    #project-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .project-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 12px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: background var(--trans), color var(--trans);
+      margin-bottom: 2px;
+      user-select: none;
+    }
+
+    .project-item:hover { background: var(--accent); }
+
+    .project-item.active {
+      background: var(--accent-hi);
+      color: var(--text);
+    }
+
+    .project-name {
+      font-size: 13px;
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .project-count {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-faint);
+      background: var(--bg-card);
+      border-radius: 20px;
+      padding: 1px 7px;
+      flex-shrink: 0;
+      min-width: 28px;
+      text-align: center;
+    }
+
+    .project-item.active .project-count { color: var(--text-dim); }
+
+    #sidebar-footer {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .footer-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-faint);
+    }
+
+    .footer-label { font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .footer-value {
+      color: var(--text-dim);
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── Main content ── */
+    #main {
+      grid-row: 2;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #content-header {
+      padding: 16px 24px 0;
+      flex-shrink: 0;
+    }
+
+    .project-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    #mcp-url-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .mcp-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-faint);
+      flex-shrink: 0;
+    }
+
+    #mcp-url {
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      font-size: 11px;
+      color: var(--text-dim);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 3px 8px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 480px;
+      cursor: pointer;
+      transition: border-color var(--trans), color var(--trans);
+      user-id: "";
+    }
+
+    #mcp-url:hover { border-color: var(--accent-hi); color: var(--text); }
+
+    #mcp-url-user-edit {
+      font-size: 11px;
+      background: none;
+      border: none;
+      border-bottom: 1px dashed var(--text-faint);
+      color: var(--text-dim);
+      outline: none;
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      width: 100px;
+      padding: 1px 2px;
+    }
+
+    .action-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 24px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    .action-bar .spacer { flex: 1; }
+
+    /* ── Add Memory ── */
+    #add-section {
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #add-section .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-faint);
+      margin-bottom: 8px;
+    }
+
+    #add-form {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+    }
+
+    #add-text {
+      flex: 1;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      font-size: 12px;
+      padding: 8px 12px;
+      resize: vertical;
+      min-height: 60px;
+      max-height: 200px;
+      outline: none;
+      transition: border-color var(--trans);
+    }
+
+    #add-text::placeholder { color: var(--text-faint); }
+    #add-text:focus { border-color: var(--accent-hi); }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 7px 14px;
+      border-radius: var(--radius);
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: background var(--trans), opacity var(--trans);
+      white-space: nowrap;
+      line-height: 1.3;
+    }
+
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .btn-primary {
+      background: var(--accent-hi);
+      color: var(--text);
+    }
+    .btn-primary:hover:not(:disabled) { background: #2059a8; }
+
+    .btn-danger {
+      background: transparent;
+      color: var(--danger);
+      border: 1px solid var(--danger);
+    }
+    .btn-danger:hover:not(:disabled) { background: rgba(233,69,96,0.12); }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover:not(:disabled) { background: var(--border); }
+
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+    /* ── Memories list ── */
+    #memories-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 24px;
+    }
+
+    #memories-scroll::-webkit-scrollbar { width: 5px; }
+    #memories-scroll::-webkit-scrollbar-track { background: transparent; }
+    #memories-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    #mode-label {
+      font-size: 12px;
+      color: var(--text-faint);
+      margin-bottom: 12px;
+    }
+
+    #mode-label strong { color: var(--text-dim); }
+
+    .memory-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .memory-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: border-color var(--trans), transform var(--trans), opacity var(--trans);
+      animation: fadeSlide 0.2s ease;
+    }
+
+    @keyframes fadeSlide {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .memory-card:hover { border-color: var(--accent-hi); }
+
+    .memory-card.deleting {
+      opacity: 0.3;
+      pointer-events: none;
+      transform: scale(0.98);
+      transition: all 0.25s ease;
+    }
+
+    .memory-text {
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .memory-footer {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .memory-meta {
+      font-size: 11px;
+      color: var(--text-faint);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .meta-sep { color: var(--text-faint); opacity: 0.4; }
+
+    .memory-user {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+      background: var(--accent);
+      border-radius: 4px;
+      padding: 1px 6px;
+    }
+
+    .score-badge {
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 4px;
+      padding: 1px 7px;
+    }
+
+    .score-high  { background: rgba(61,214,140,0.15); color: var(--score-ok); }
+    .score-mid   { background: rgba(247,201,72,0.15);  color: var(--score-mid); }
+    .score-low   { background: rgba(233,69,96,0.15);  color: var(--score-low); }
+
+    .memory-footer .spacer { flex: 1; }
+
+    .delete-btn {
+      background: none;
+      border: none;
+      color: var(--text-faint);
+      cursor: pointer;
+      font-size: 13px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      transition: color var(--trans), background var(--trans);
+      flex-shrink: 0;
+    }
+
+    .delete-btn:hover { color: var(--danger); background: rgba(233,69,96,0.1); }
+
+    /* ── Empty / placeholder states ── */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 200px;
+      gap: 12px;
+      color: var(--text-faint);
+      text-align: center;
+    }
+
+    .empty-icon { font-size: 40px; opacity: 0.4; }
+    .empty-text { font-size: 13px; }
+
+    #no-project {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 12px;
+      color: var(--text-faint);
+      text-align: center;
+      padding: 24px;
+    }
+
+    .no-project-icon { font-size: 56px; opacity: 0.25; }
+
+    /* ── Toast ── */
+    #toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 1000;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: var(--bg-mid);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 16px;
+      font-size: 13px;
+      color: var(--text);
+      pointer-events: auto;
+      animation: toastIn 0.2s ease;
+      max-width: 320px;
+      word-break: break-word;
+    }
+
+    .toast.error { border-color: var(--danger); color: var(--danger-hi); }
+    .toast.success { border-color: var(--score-ok); }
+
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Modal ── */
+    #modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(10,10,20,0.7);
+      z-index: 500;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #modal-backdrop.open { display: flex; }
+
+    .modal {
+      background: var(--bg-mid);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 28px 28px 20px;
+      max-width: 380px;
+      width: calc(100% - 40px);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      animation: fadeSlide 0.18s ease;
+    }
+
+    .modal-title {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .modal-body { font-size: 13px; color: var(--text-dim); line-height: 1.6; }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    /* ── Loading skeleton ── */
+    .skeleton {
+      background: linear-gradient(90deg, var(--bg-card) 25%, var(--border) 50%, var(--bg-card) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.2s infinite;
+      border-radius: var(--radius);
+    }
+
+    @keyframes shimmer {
+      from { background-position: 200% 0; }
+      to   { background-position: -200% 0; }
+    }
+
+    .skeleton-card {
+      height: 90px;
+      width: 100%;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      :root { --sidebar-w: 200px; }
+
+      #topbar .logo { font-size: 15px; }
+
+      #mcp-url { max-width: 200px; }
+
+      #add-form { flex-direction: column; align-items: stretch; }
+    }
+
+    @media (max-width: 480px) {
+      #app {
+        grid-template-columns: 1fr;
+        grid-template-rows: var(--topbar-h) 1fr;
+      }
+
+      #sidebar {
+        display: none;
+      }
+
+      #topbar .logo { font-size: 15px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- Top bar -->
+  <header id="topbar">
+    <div class="logo">
+      mem<span>-</span>zero
+    </div>
+
+    <div id="search-wrap">
+      <input id="search-input" type="text" placeholder="Search memories… (Enter to run)" autocomplete="off" spellcheck="false" />
+      <button id="search-clear" title="Clear search" aria-label="Clear search">&#x2715;</button>
+    </div>
+
+    <div id="topbar-status">
+      <span class="health-dot" id="health-dot"></span>
+      <span id="status-text">connecting…</span>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <nav id="sidebar">
+    <div id="sidebar-header">
+      Projects
+      <button id="refresh-btn" title="Refresh projects" aria-label="Refresh projects">&#x21BB;</button>
+    </div>
+    <div id="project-list">
+      <!-- injected by JS -->
+    </div>
+    <div id="sidebar-footer">
+      <div class="footer-row">
+        <span class="footer-label">LLM</span>
+        <span class="footer-value" id="footer-model">—</span>
+      </div>
+      <div class="footer-row">
+        <span class="footer-label">Embed</span>
+        <span class="footer-value" id="footer-embedder">—</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main id="main">
+    <div id="no-project">
+      <div class="no-project-icon">&#x1F9E0;</div>
+      <div style="font-size:16px; font-weight:600; color:var(--text-dim)">Select a project</div>
+      <div style="font-size:13px">Choose a project from the sidebar to view and manage memories.</div>
+    </div>
+
+    <div id="project-view" style="display:none; flex:1; flex-direction:column; overflow:hidden;">
+
+      <div id="content-header">
+        <div class="project-title" id="project-title"></div>
+        <div id="mcp-url-row">
+          <span class="mcp-label">MCP URL</span>
+          <span id="mcp-url" title="Click to copy"></span>
+          <span style="font-size:11px; color:var(--text-faint)">user:</span>
+          <input id="mcp-user-input" type="text" value="default" placeholder="user_id" style="
+            font-size:11px;
+            font-family:'SF Mono','Fira Code','Consolas',monospace;
+            background:var(--bg-card);
+            border:1px solid var(--border);
+            border-radius:4px;
+            color:var(--text-dim);
+            outline:none;
+            padding:3px 6px;
+            width:90px;
+            transition:border-color var(--trans);
+          " />
+        </div>
+      </div>
+
+      <div class="action-bar">
+        <span id="memory-count-label" style="font-size:12px; color:var(--text-faint);"></span>
+        <div class="spacer"></div>
+        <button class="btn btn-danger btn-sm" id="delete-all-btn">Delete All</button>
+      </div>
+
+      <div id="add-section">
+        <div class="section-label">Add Memory</div>
+        <div id="add-form">
+          <textarea id="add-text" placeholder="Paste raw text, facts, notes… the LLM will extract memories from it." rows="2"></textarea>
+          <button class="btn btn-primary" id="add-btn">Add</button>
+        </div>
+      </div>
+
+      <div id="memories-scroll">
+        <div id="mode-label"></div>
+        <div class="memory-list" id="memory-list"></div>
+      </div>
+
+    </div>
+  </main>
+
+</div>
+
+<!-- Confirm modal -->
+<div id="modal-backdrop">
+  <div class="modal">
+    <div class="modal-title" id="modal-title">Confirm</div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" id="modal-cancel">Cancel</button>
+      <button class="btn btn-danger btn-sm" id="modal-confirm">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  const state = {
+    projects: [],        // [{slug, collection, memory_count}]
+    activeSlug: null,    // currently selected project slug
+    memories: [],        // current display list (browse or search results)
+    searchMode: false,   // true when showing search results
+    searchQuery: '',
+    userId: 'default',
+    loading: false,
+    health: null,        // 'ok' | 'err'
+  };
+
+  // ── DOM refs ───────────────────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+  const projectList   = $('project-list');
+  const memoryList    = $('memory-list');
+  const noProject     = $('no-project');
+  const projectView   = $('project-view');
+  const projectTitle  = $('project-title');
+  const mcpUrl        = $('mcp-url');
+  const mcpUserInput  = $('mcp-user-input');
+  const modeLabel     = $('mode-label');
+  const countLabel    = $('memory-count-label');
+  const searchInput   = $('search-input');
+  const searchWrap    = $('search-wrap');
+  const searchClear   = $('search-clear');
+  const addText       = $('add-text');
+  const addBtn        = $('add-btn');
+  const deleteAllBtn  = $('delete-all-btn');
+  const refreshBtn    = $('refresh-btn');
+  const healthDot     = $('health-dot');
+  const statusText    = $('status-text');
+  const footerModel   = $('footer-model');
+  const footerEmbed   = $('footer-embedder');
+  const modalBackdrop = $('modal-backdrop');
+  const modalTitle    = $('modal-title');
+  const modalBody     = $('modal-body');
+  const modalCancel   = $('modal-cancel');
+  const modalConfirm  = $('modal-confirm');
+  const toastCont     = $('toast-container');
+
+  // ── Utilities ─────────────────────────────────────────────────────────────
+  function relTime(ts) {
+    // ts is Unix epoch seconds (float)
+    const diff = Math.floor(Date.now() / 1000 - ts);
+    if (diff < 5)   return 'just now';
+    if (diff < 60)  return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    if (diff < 86400*7) return `${Math.floor(diff/86400)}d ago`;
+    return new Date(ts*1000).toLocaleDateString();
+  }
+
+  function scoreClass(score) {
+    if (score === null || score === undefined) return '';
+    if (score >= 0.75) return 'score-high';
+    if (score >= 0.45) return 'score-mid';
+    return 'score-low';
+  }
+
+  function pct(score) {
+    return Math.round(score * 100) + '%';
+  }
+
+  function esc(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function toast(msg, type = 'info') {
+    const el = document.createElement('div');
+    el.className = `toast${type === 'error' ? ' error' : type === 'success' ? ' success' : ''}`;
+    el.textContent = msg;
+    toastCont.appendChild(el);
+    setTimeout(() => el.remove(), 3500);
+  }
+
+  function confirm(title, body) {
+    return new Promise(resolve => {
+      modalTitle.textContent = title;
+      modalBody.textContent  = body;
+      modalBackdrop.classList.add('open');
+      const cleanup = val => {
+        modalBackdrop.classList.remove('open');
+        modalConfirm.onclick = null;
+        modalCancel.onclick  = null;
+        resolve(val);
+      };
+      modalConfirm.onclick = () => cleanup(true);
+      modalCancel.onclick  = () => cleanup(false);
+    });
+  }
+
+  function buildMcpUrl(slug, userId) {
+    const host = window.location.host;
+    return `http://${host}/mcp/${slug}/http/${userId}`;
+  }
+
+  function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(
+      () => toast('Copied to clipboard', 'success'),
+      () => toast('Could not copy — check browser permissions', 'error')
+    );
+  }
+
+  // ── API layer ─────────────────────────────────────────────────────────────
+  async function api(method, path, body) {
+    const opts = { method, headers: {} };
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(path, opts);
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { const j = await res.json(); detail = j.detail || JSON.stringify(j); } catch (_) {}
+      throw new Error(detail);
+    }
+    // DELETE /memories returns {deleted: N} — still valid JSON
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('application/json')) return res.json();
+    return null;
+  }
+
+  const API = {
+    projects:   () => api('GET', '/api/v1/projects'),
+    memories:   (slug, limit=100) => api('GET', `/api/v1/projects/${slug}/memories?limit=${limit}`),
+    add:        (slug, text, metadata={}) => api('POST', `/api/v1/projects/${slug}/memories`, {text, metadata}),
+    search:     (slug, query, top_k=20) => api('POST', `/api/v1/projects/${slug}/search`, {query, top_k}),
+    deleteOne:  (slug, id) => api('DELETE', `/api/v1/projects/${slug}/memories/${id}`),
+    deleteAll:  (slug) => api('DELETE', `/api/v1/projects/${slug}/memories`),
+    health:     () => api('GET', '/health'),
+    config:     () => api('GET', '/debug/config'),
+  };
+
+  // ── Render helpers ─────────────────────────────────────────────────────────
+  function renderProjectList() {
+    if (!state.projects.length) {
+      projectList.innerHTML = `<div class="empty-state" style="height:80px"><div class="empty-text">No projects yet</div></div>`;
+      return;
+    }
+    projectList.innerHTML = state.projects.map(p => `
+      <div class="project-item${p.slug === state.activeSlug ? ' active' : ''}" data-slug="${esc(p.slug)}">
+        <span class="project-name">${esc(p.slug)}</span>
+        <span class="project-count">${p.memory_count}</span>
+      </div>
+    `).join('');
+  }
+
+  function renderMemoryCard(m) {
+    const hasScore = m.score !== null && m.score !== undefined;
+    const scoreBadge = hasScore
+      ? `<span class="score-badge ${scoreClass(m.score)}">${pct(m.score)}</span>`
+      : '';
+    return `
+      <div class="memory-card" data-id="${esc(m.id)}">
+        <div class="memory-text">${esc(m.text)}</div>
+        <div class="memory-footer">
+          <span class="memory-user">${esc(m.user_id)}</span>
+          ${scoreBadge}
+          <span class="memory-meta">
+            <span title="${new Date(m.created_at*1000).toLocaleString()}">${relTime(m.created_at)}</span>
+          </span>
+          <span class="spacer"></span>
+          <button class="delete-btn" data-id="${esc(m.id)}" title="Delete memory" aria-label="Delete memory">&#x1F5D1;</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderMemories() {
+    const list = state.memories;
+
+    if (state.loading) {
+      memoryList.innerHTML = [1,2,3].map(() =>
+        `<div class="skeleton skeleton-card"></div>`
+      ).join('');
+      return;
+    }
+
+    if (!list.length) {
+      memoryList.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">&#x1F4AD;</div>
+          <div class="empty-text">${state.searchMode ? 'No results for this query.' : 'No memories yet. Add one above.'}</div>
+        </div>`;
+      return;
+    }
+
+    memoryList.innerHTML = list.map(renderMemoryCard).join('');
+  }
+
+  function renderModeLabel() {
+    if (!state.activeSlug) return;
+    if (state.searchMode) {
+      modeLabel.innerHTML = `Search results for <strong>"${esc(state.searchQuery)}"</strong> &mdash; ${state.memories.length} found`;
+    } else {
+      modeLabel.innerHTML = '';
+    }
+    countLabel.textContent = state.searchMode
+      ? `${state.memories.length} result${state.memories.length !== 1 ? 's' : ''}`
+      : `${state.memories.length} memor${state.memories.length !== 1 ? 'ies' : 'y'}`;
+  }
+
+  function updateMcpUrl() {
+    if (!state.activeSlug) return;
+    const url = buildMcpUrl(state.activeSlug, state.userId);
+    mcpUrl.textContent = url;
+    mcpUrl.title = 'Click to copy: ' + url;
+  }
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+  async function loadProjects() {
+    refreshBtn.classList.add('spinning');
+    try {
+      state.projects = await API.projects();
+      renderProjectList();
+    } catch(e) {
+      toast('Failed to load projects: ' + e.message, 'error');
+    } finally {
+      refreshBtn.classList.remove('spinning');
+    }
+  }
+
+  async function loadMemories() {
+    if (!state.activeSlug) return;
+    state.loading = true;
+    renderMemories();
+    try {
+      state.memories = await API.memories(state.activeSlug);
+      state.searchMode = false;
+      state.searchQuery = '';
+      searchInput.value = '';
+      searchWrap.classList.remove('has-query');
+    } catch(e) {
+      toast('Failed to load memories: ' + e.message, 'error');
+      state.memories = [];
+    } finally {
+      state.loading = false;
+      renderMemories();
+      renderModeLabel();
+    }
+  }
+
+  async function selectProject(slug) {
+    state.activeSlug = slug;
+    state.memories   = [];
+    state.searchMode = false;
+    noProject.style.display = 'none';
+    projectView.style.display = 'flex';
+    projectTitle.textContent = slug;
+    updateMcpUrl();
+    renderProjectList();
+    await loadMemories();
+  }
+
+  async function runSearch(query) {
+    if (!state.activeSlug || !query.trim()) return;
+    state.loading = true;
+    state.searchMode  = true;
+    state.searchQuery = query.trim();
+    renderMemories();
+    try {
+      state.memories = await API.search(state.activeSlug, state.searchQuery);
+    } catch(e) {
+      toast('Search failed: ' + e.message, 'error');
+      state.memories = [];
+    } finally {
+      state.loading = false;
+      renderMemories();
+      renderModeLabel();
+    }
+  }
+
+  async function addMemory() {
+    const text = addText.value.trim();
+    if (!text || !state.activeSlug) return;
+    addBtn.disabled = true;
+    addBtn.textContent = 'Adding…';
+    try {
+      const res = await API.add(state.activeSlug, text);
+      toast(`Stored ${res.stored} memor${res.stored !== 1 ? 'ies' : 'y'}`, 'success');
+      addText.value = '';
+      await loadMemories();
+      // Update count in sidebar
+      const proj = state.projects.find(p => p.slug === state.activeSlug);
+      if (proj) { proj.memory_count = state.memories.length; renderProjectList(); }
+    } catch(e) {
+      toast('Failed to add memory: ' + e.message, 'error');
+    } finally {
+      addBtn.disabled = false;
+      addBtn.textContent = 'Add';
+    }
+  }
+
+  async function deleteMemory(id) {
+    if (!state.activeSlug) return;
+    const card = memoryList.querySelector(`[data-id="${id}"]`);
+    if (card) card.classList.add('deleting');
+    try {
+      await API.deleteOne(state.activeSlug, id);
+      state.memories = state.memories.filter(m => m.id !== id);
+      const proj = state.projects.find(p => p.slug === state.activeSlug);
+      if (proj && proj.memory_count > 0) proj.memory_count--;
+      renderMemories();
+      renderModeLabel();
+      renderProjectList();
+    } catch(e) {
+      if (card) card.classList.remove('deleting');
+      toast('Delete failed: ' + e.message, 'error');
+    }
+  }
+
+  async function deleteAll() {
+    if (!state.activeSlug) return;
+    const ok = await confirm(
+      'Delete all memories?',
+      `This will permanently delete all memories in "${state.activeSlug}". This cannot be undone.`
+    );
+    if (!ok) return;
+    deleteAllBtn.disabled = true;
+    try {
+      const res = await API.deleteAll(state.activeSlug);
+      toast(`Deleted ${res.deleted} memor${res.deleted !== 1 ? 'ies' : 'y'}`, 'success');
+      state.memories = [];
+      const proj = state.projects.find(p => p.slug === state.activeSlug);
+      if (proj) proj.memory_count = 0;
+      renderMemories();
+      renderModeLabel();
+      renderProjectList();
+    } catch(e) {
+      toast('Delete all failed: ' + e.message, 'error');
+    } finally {
+      deleteAllBtn.disabled = false;
+    }
+  }
+
+  async function checkHealth() {
+    try {
+      await API.health();
+      state.health = 'ok';
+      healthDot.className = 'health-dot ok';
+      statusText.textContent = 'healthy';
+    } catch(_) {
+      state.health = 'err';
+      healthDot.className = 'health-dot err';
+      statusText.textContent = 'unreachable';
+    }
+  }
+
+  async function loadConfig() {
+    try {
+      const cfg = await API.config();
+      footerModel.textContent   = cfg.llm_model       || '—';
+      footerEmbed.textContent   = cfg.embedder_model   || '—';
+    } catch(_) {}
+  }
+
+  // ── Event wiring ───────────────────────────────────────────────────────────
+
+  // Project selection (delegated)
+  projectList.addEventListener('click', e => {
+    const item = e.target.closest('.project-item');
+    if (!item) return;
+    selectProject(item.dataset.slug);
+  });
+
+  // Search
+  let searchTimer;
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.trim();
+    searchWrap.classList.toggle('has-query', !!q);
+    if (!q) {
+      clearTimeout(searchTimer);
+      if (state.searchMode) loadMemories();
+    }
+  });
+
+  searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      clearTimeout(searchTimer);
+      const q = searchInput.value.trim();
+      if (q) runSearch(q);
+      else if (state.searchMode) loadMemories();
+    }
+  });
+
+  searchClear.addEventListener('click', () => {
+    searchInput.value = '';
+    searchWrap.classList.remove('has-query');
+    if (state.searchMode) loadMemories();
+    searchInput.focus();
+  });
+
+  // MCP URL copy
+  mcpUrl.addEventListener('click', () => {
+    const url = buildMcpUrl(state.activeSlug, state.userId);
+    copyToClipboard(url);
+  });
+
+  // User ID change updates MCP URL live
+  mcpUserInput.addEventListener('input', () => {
+    state.userId = mcpUserInput.value.trim() || 'default';
+    updateMcpUrl();
+  });
+
+  // Add memory
+  addBtn.addEventListener('click', addMemory);
+  addText.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addMemory();
+  });
+
+  // Delete all
+  deleteAllBtn.addEventListener('click', deleteAll);
+
+  // Delete single (delegated)
+  memoryList.addEventListener('click', e => {
+    const btn = e.target.closest('.delete-btn');
+    if (!btn) return;
+    deleteMemory(btn.dataset.id);
+  });
+
+  // Refresh
+  refreshBtn.addEventListener('click', () => {
+    loadProjects();
+    if (state.activeSlug) loadMemories();
+  });
+
+  // Modal close on backdrop click
+  modalBackdrop.addEventListener('click', e => {
+    if (e.target === modalBackdrop) {
+      modalBackdrop.classList.remove('open');
+    }
+  });
+
+  // Keyboard: Escape closes modal
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && modalBackdrop.classList.contains('open')) {
+      modalBackdrop.classList.remove('open');
+    }
+  });
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  async function init() {
+    await Promise.all([checkHealth(), loadConfig(), loadProjects()]);
+    // Auto-select first project if only one exists
+    if (state.projects.length === 1) {
+      selectProject(state.projects[0].slug);
+    }
+    // Refresh health every 30s
+    setInterval(checkHealth, 30_000);
+    // Refresh project list every 60s
+    setInterval(loadProjects, 60_000);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
