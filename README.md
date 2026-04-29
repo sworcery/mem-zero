@@ -87,7 +87,8 @@ GET    /api/v1/projects/{slug}/memories          — list memories
 POST   /api/v1/projects/{slug}/memories          — add memory {"text": "..."}
 POST   /api/v1/projects/{slug}/search            — search {"query": "...", "top_k": 10}
 DELETE /api/v1/projects/{slug}/memories/{id}      — delete one
-DELETE /api/v1/projects/{slug}/memories           — delete all
+DELETE /api/v1/projects/{slug}/memories           — delete all memories
+DELETE /api/v1/projects/{slug}                    — delete entire project
 ```
 
 ## Configuration
