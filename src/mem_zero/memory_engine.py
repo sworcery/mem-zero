@@ -184,14 +184,12 @@ class MemoryEngine:
             query_filter = Filter(
                 must=[FieldCondition(key="user_id", match=MatchValue(value=user_id))]
             )
-        results = (
-            await self._qdrant.query_points(
-                collection_name=collection,
-                query=vectors[0],
-                query_filter=query_filter,
-                limit=top_k,
-            )
-        ).points
+        results = await self._qdrant.search(
+            collection_name=collection,
+            query_vector=vectors[0],
+            query_filter=query_filter,
+            limit=top_k,
+        )
 
         return [
             MemoryRecord(
