@@ -153,9 +153,7 @@ class MemoryEngine:
         if not results:
             return "add", None, None
 
-        existing_lines = "\n".join(
-            f"- [id={r.id}] {r.text}" for r in results if r.score and r.score > 0.5
-        )
+        existing_lines = "\n".join(f"- [id={r.id}] {r.text}" for r in results)
         if not existing_lines:
             return "add", None, None
 
@@ -184,12 +182,14 @@ class MemoryEngine:
             query_filter = Filter(
                 must=[FieldCondition(key="user_id", match=MatchValue(value=user_id))]
             )
-        results = await self._qdrant.search(
-            collection_name=collection,
-            query_vector=vectors[0],
-            query_filter=query_filter,
-            limit=top_k,
-        )
+        results = (
+            await self._qdrant.query_points(
+                collection_name=collection,
+                query=vectors[0],
+                query_filter=query_filter,
+                limit=top_k,
+            )
+        ).points
 
         return [
             MemoryRecord(
