@@ -20,6 +20,4 @@ jobs:
         run: DOCKER_BUILDKIT=0 docker build --network host -t 192.168.1.10:5000/mem-zero:dev .
 
       - name: Push image
-        run: |
-          apt-get update -qq && apt-get install -y -qq skopeo > /dev/null
-          skopeo copy --dest-tls-verify=false docker-daemon:192.168.1.10:5000/mem-zero:dev docker://192.168.1.10:5000/mem-zero:dev
+        run: docker push 192.168.1.10:5000/mem-zero:dev
