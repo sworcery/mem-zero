@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>mem-zero</Name>
-  <Repository>192.168.1.10:5000/mem-zero:dev</Repository>
+  <Repository>ghcr.io/sworcery/mem-zero:latest</Repository>
   <Registry/>
   <Network>bridge</Network>
   <Shell>bash</Shell>
@@ -10,15 +10,15 @@
   <WebUI>http://[IP]:[PORT:8765]/</WebUI>
   <Overview>Project-isolated MCP memory server with embedded Qdrant and bundled LLM.</Overview>
   <Category>Tools:</Category>
-  <Icon>http://192.168.1.10:8765/icon.png</Icon>
+  <Icon>/icon.png</Icon>
   <ExtraParams>--add-host=host.docker.internal:host-gateway</ExtraParams>
   <DateInstalled/>
   <Description>Project-isolated MCP memory server with embedded Qdrant vector database. Includes a bundled LLM for self-contained operation, or connect to Ollama/OpenAI.</Description>
   <Config Name="WebUI Port" Target="8765" Default="8765" Mode="tcp" Description="Web dashboard and MCP server HTTP port" Type="Port" Display="always" Required="true" Mask="false">8765</Config>
   <Config Name="Qdrant Port" Target="6333" Default="" Mode="tcp" Description="Qdrant API port (optional, for direct access)" Type="Port" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="Storage" Target="/mem0/storage" Default="/mnt/user/appdata/mem-zero" Mode="rw" Description="Persistent storage for Qdrant data" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/mem-zero</Config>
-  <Config Name="LLM Backend" Target="LLM_BACKEND" Default="ollama" Mode="" Description="LLM backend: bundled (self-contained), ollama, or openai. Auto-detected if not set." Type="Variable" Display="always" Required="true" Mask="false">ollama</Config>
-  <Config Name="Ollama URL" Target="OLLAMA_BASE_URL" Default="http://192.168.1.10:11434" Mode="" Description="Ollama API base URL (only used when backend=ollama)" Type="Variable" Display="always" Required="true" Mask="false">http://192.168.1.10:11434</Config>
+  <Config Name="LLM Backend" Target="LLM_BACKEND" Default="bundled" Mode="" Description="LLM backend: bundled (self-contained), ollama, or openai. Auto-detected if not set." Type="Variable" Display="always" Required="true" Mask="false">bundled</Config>
+  <Config Name="Ollama URL" Target="OLLAMA_BASE_URL" Default="" Mode="" Description="Ollama API base URL (only used when backend=ollama)" Type="Variable" Display="always" Required="false" Mask="false"></Config>
   <Config Name="LLM Model" Target="LLM_MODEL" Default="qwen2.5:7b" Mode="" Description="Ollama language model (only used when backend=ollama)" Type="Variable" Display="advanced" Required="false" Mask="false">qwen2.5:7b</Config>
   <Config Name="Embedder Model" Target="EMBEDDER_MODEL" Default="nomic-embed-text" Mode="" Description="Ollama embedding model (only used when backend=ollama)" Type="Variable" Display="advanced" Required="false" Mask="false">nomic-embed-text</Config>
   <Config Name="Embedder Dimensions" Target="EMBEDDER_DIMENSIONS" Default="768" Mode="" Description="Embedding vector dimensions" Type="Variable" Display="advanced" Required="false" Mask="false">768</Config>

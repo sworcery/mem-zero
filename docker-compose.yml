@@ -1,6 +1,6 @@
 services:
   mem-zero:
-    image: 192.168.1.10:5000/mem-zero:dev
+    image: ghcr.io/sworcery/mem-zero:latest
     container_name: mem-zero
     ports:
       - "8765:8765"
@@ -12,7 +12,7 @@ services:
       # - LLM_BACKEND=bundled
 
       # Ollama settings (only used when LLM_BACKEND=ollama)
-      # - OLLAMA_BASE_URL=http://192.168.1.10:11434
+      # - OLLAMA_BASE_URL=http://your-ollama-host:11434
       # - LLM_MODEL=qwen2.5:7b
       # - EMBEDDER_MODEL=nomic-embed-text
 

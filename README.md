@@ -40,7 +40,7 @@ docker run -d \
   --name mem-zero \
   -p 8765:8765 \
   -v mem-zero-data:/mem0/storage \
-  192.168.1.10:5000/mem-zero:dev
+  ghcr.io/sworcery/mem-zero:latest
 ```
 
 With Ollama:
@@ -52,7 +52,7 @@ docker run -d \
   -v mem-zero-data:/mem0/storage \
   -e OLLAMA_BASE_URL=http://your-ollama-host:11434 \
   -e LLM_MODEL=qwen2.5:7b \
-  192.168.1.10:5000/mem-zero:dev
+  ghcr.io/sworcery/mem-zero:latest
 ```
 
 ## Connecting Claude Code
