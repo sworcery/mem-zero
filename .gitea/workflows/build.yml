@@ -17,7 +17,7 @@ jobs:
           git checkout FETCH_HEAD
 
       - name: Build image
-        run: docker build -t 192.168.1.10:5000/mem-zero:dev .
+        run: DOCKER_BUILDKIT=0 docker build -t 192.168.1.10:5000/mem-zero:dev .
 
       - name: Push image
         run: |
