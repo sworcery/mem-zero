@@ -48,6 +48,8 @@ class Config:
 
     collection_prefix: str = "mem0"
 
+    api_key: str | None = None
+
     dashboard_user: str | None = None
     dashboard_pass: str | None = None
 
@@ -104,6 +106,7 @@ class Config:
             openai_model=_str("OPENAI_MODEL", "gpt-4o-mini"),
             openai_embed_model=_str("OPENAI_EMBED_MODEL", "text-embedding-3-small"),
             collection_prefix=_str("COLLECTION_PREFIX", "mem0"),
+            api_key=_opt("API_KEY"),
             dashboard_user=_opt("DASHBOARD_USER"),
             dashboard_pass=_opt("DASHBOARD_PASS"),
         )

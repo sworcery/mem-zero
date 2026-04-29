@@ -37,7 +37,30 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-_OPEN_PREFIXES = ("/api/", "/mcp/", "/health", "/debug/", "/icon.png")
+_ALWAYS_OPEN = ("/health", "/icon.png")
+_API_PREFIXES = ("/api/", "/mcp/", "/debug/")
+
+
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app_: FastAPI, api_key: str) -> None:
+        super().__init__(app_)
+        self._api_key = api_key
+
+    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
+        path = request.url.path
+        if any(path.startswith(p) for p in _ALWAYS_OPEN):
+            return await call_next(request)
+        if any(path.startswith(p) for p in _API_PREFIXES):
+            auth = request.headers.get("authorization", "")
+            if auth.startswith("Bearer "):
+                token = auth[7:]
+                if secrets.compare_digest(token, self._api_key):
+                    return await call_next(request)
+            key = request.query_params.get("api_key", "")
+            if key and secrets.compare_digest(key, self._api_key):
+                return await call_next(request)
+            return Response(status_code=401, content="Invalid or missing API key")
+        return await call_next(request)
 
 
 class DashboardAuthMiddleware(BaseHTTPMiddleware):
@@ -48,7 +71,7 @@ class DashboardAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
         path = request.url.path
-        if any(path.startswith(p) for p in _OPEN_PREFIXES):
+        if any(path.startswith(p) for p in _ALWAYS_OPEN + _API_PREFIXES):
             return await call_next(request)
 
         import base64
@@ -72,6 +95,9 @@ class DashboardAuthMiddleware(BaseHTTPMiddleware):
             content="Unauthorized",
         )
 
+
+if config.api_key:
+    app.add_middleware(APIKeyMiddleware, api_key=config.api_key)
 
 if config.dashboard_user and config.dashboard_pass:
     app.add_middleware(

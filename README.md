@@ -121,6 +121,35 @@ A management UI is served at the root URL (`http://your-host:8765/`). From the d
 
 Optionally protect it with basic auth via `DASHBOARD_USER` and `DASHBOARD_PASS`.
 
+## Authentication
+
+Set `API_KEY` to protect all API and MCP endpoints. When set, requests must include the key as a Bearer token:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://your-host:8765/api/v1/projects
+```
+
+For MCP clients, add the header to your client config. In Claude Code's `.mcp.json`:
+
+```json
+{
+  "mem-zero": {
+    "type": "http",
+    "url": "http://your-host:8765/mcp/my-project/http/my-user",
+    "headers": {
+      "Authorization": "Bearer your-api-key"
+    }
+  }
+}
+```
+
+A query parameter (`?api_key=your-key`) is also accepted for clients that can't set headers.
+
+If `API_KEY` is not set, all endpoints are open — suitable for trusted networks.
+
+The dashboard has its own basic auth (`DASHBOARD_USER`/`DASHBOARD_PASS`) since browsers need a login prompt rather than Bearer tokens.
+
 ## MCP tools
 
 | Tool | Description |
@@ -152,6 +181,7 @@ All settings are via environment variables.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
+| `API_KEY` | — | API key for MCP and REST endpoints (disabled if empty) |
 | `LLM_BACKEND` | auto-detect | `bundled`, `ollama`, or `openai` |
 | `EMBEDDER_DIMENSIONS` | `768` | Vector dimensions |
 | `COLLECTION_PREFIX` | `mem0` | Qdrant collection name prefix |
