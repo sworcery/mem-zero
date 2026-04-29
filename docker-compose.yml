@@ -11,6 +11,8 @@ services:
       - LLM_MODEL=qwen2.5:7b
       - EMBEDDER_MODEL=nomic-embed-text
       - EMBEDDER_DIMENSIONS=768
+      # - DASHBOARD_USER=admin
+      # - DASHBOARD_PASS=changeme
     extra_hosts:
       - "host.docker.internal:host-gateway"
     labels:

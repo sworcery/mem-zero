@@ -33,6 +33,9 @@ class Config:
 
     collection_prefix: str = "mem0"
 
+    dashboard_user: str | None = None
+    dashboard_pass: str | None = None
+
     @staticmethod
     def from_env() -> Config:
         def _str(key: str, default: str) -> str:
@@ -63,6 +66,8 @@ class Config:
             embedder_model=_str("EMBEDDER_MODEL", "nomic-embed-text"),
             embedding_dimensions=_int("EMBEDDER_DIMENSIONS", 768),
             collection_prefix=_str("COLLECTION_PREFIX", "mem0"),
+            dashboard_user=_opt("DASHBOARD_USER"),
+            dashboard_pass=_opt("DASHBOARD_PASS"),
         )
 
     def collection_name(self, project_slug: str) -> str:

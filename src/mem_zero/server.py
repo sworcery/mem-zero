@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path as FilePath
 
-from fastapi import FastAPI, HTTPException, Path, Query
+from fastapi import FastAPI, HTTPException, Path, Query, Request, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import Config, validate_slug
 from .mcp_server import mcp_router, set_engine
@@ -32,6 +34,49 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+_OPEN_PREFIXES = ("/api/", "/mcp/", "/health", "/debug/")
+
+
+class DashboardAuthMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app_: FastAPI, username: str, password: str) -> None:
+        super().__init__(app_)
+        self._username = username
+        self._password = password
+
+    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
+        path = request.url.path
+        if any(path.startswith(p) for p in _OPEN_PREFIXES):
+            return await call_next(request)
+
+        import base64
+
+        auth = request.headers.get("authorization", "")
+        if auth.startswith("Basic "):
+            try:
+                decoded = base64.b64decode(auth[6:]).decode()
+                user, passwd = decoded.split(":", 1)
+                if (
+                    secrets.compare_digest(user, self._username)
+                    and secrets.compare_digest(passwd, self._password)
+                ):
+                    return await call_next(request)
+            except Exception:
+                pass
+
+        return Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="mem-zero"'},
+            content="Unauthorized",
+        )
+
+
+if config.dashboard_user and config.dashboard_pass:
+    app.add_middleware(
+        DashboardAuthMiddleware,
+        username=config.dashboard_user,
+        password=config.dashboard_pass,
+    )
 
 app.include_router(mcp_router, prefix="/mcp")
 

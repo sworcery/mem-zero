@@ -108,6 +108,8 @@ All settings are via environment variables.
 | `COLLECTION_PREFIX` | `mem0` | Qdrant collection name prefix |
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `8765` | Server port |
+| `DASHBOARD_USER` | — | Dashboard login username (auth disabled if empty) |
+| `DASHBOARD_PASS` | — | Dashboard login password |
 
 ## Architecture
 
