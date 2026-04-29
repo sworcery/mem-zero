@@ -22,6 +22,10 @@ services:
       # - OPENAI_MODEL=gpt-4o-mini
 
       - EMBEDDER_DIMENSIONS=768
+
+      # API key for MCP and REST endpoints (generate with: openssl rand -hex 32)
+      # - API_KEY=your-api-key-here
+
       # - DASHBOARD_USER=admin
       # - DASHBOARD_PASS=changeme
     extra_hosts:
