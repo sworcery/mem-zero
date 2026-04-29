@@ -10,7 +10,7 @@
   <WebUI>http://[IP]:[PORT:8765]/</WebUI>
   <Overview>Project-isolated MCP memory server with embedded Qdrant and bundled LLM.</Overview>
   <Category>Tools:</Category>
-  <Icon>http://192.168.1.10:8765/icon.jpg</Icon>
+  <Icon>http://192.168.1.10:8765/icon.png</Icon>
   <ExtraParams>--label com.centurylinklabs.watchtower.enable=true --add-host=host.docker.internal:host-gateway</ExtraParams>
   <DateInstalled/>
   <Description>Project-isolated MCP memory server with embedded Qdrant vector database. Includes a bundled LLM for self-contained operation, or connect to Ollama/OpenAI.</Description>
