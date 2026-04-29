@@ -1,16 +1,69 @@
 # mem-zero
 
-Project-isolated MCP memory server for Claude Code. Each project gets its own Qdrant vector collection — no cross-pollination between projects.
+Self-hosted memory server for AI coding assistants. Store, search, and manage persistent context across sessions — so your tools remember what happened last week without stuffing everything into the context window.
 
-When you store a memory, the text is sent through an LLM to extract atomic facts, deduplicate against existing memories, and embed for semantic search. The result is a clean, searchable memory store per project.
+Each project gets its own isolated vector collection. When you store a memory, an LLM extracts atomic facts, deduplicates against existing memories, and embeds them for semantic search. The result is a clean, searchable memory store per project that any MCP client or HTTP-capable tool can query.
+
+## Why?
+
+AI coding assistants forget everything between sessions. Every new conversation starts from scratch — you re-explain decisions, re-discover bugs, repeat yourself. mem-zero fixes that by giving your assistant persistent project memory:
+
+- **Session 50 knows what session 1 figured out** — bugs fixed, decisions made, preferences learned
+- **Selective retrieval** — semantic search pulls in only what's relevant, not entire conversation logs
+- **Project-isolated** — memories from one project never leak into another
+- **Self-contained** — runs as a single Docker container with an embedded LLM, no external dependencies required
+
+## Quick start
+
+```bash
+docker run -d \
+  --name mem-zero \
+  -p 8765:8765 \
+  -v mem-zero-data:/mem0/storage \
+  ghcr.io/sworcery/mem-zero:latest
+```
+
+That's it. The bundled LLM handles fact extraction and embeddings out of the box. First startup downloads models (~2 GB) and takes a few minutes — subsequent starts are fast.
+
+## Connecting your tools
+
+### Claude Code (MCP)
+
+```bash
+claude mcp add mem-zero --transport http \
+  "http://your-host:8765/mcp/your-project-slug/http/your-user-id" \
+  -s local
+```
+
+### Any MCP client (Claude Desktop, Cursor, Windsurf, etc.)
+
+Add the MCP server URL to your client's configuration:
+
+```
+http://your-host:8765/mcp/your-project-slug/http/your-user-id
+```
+
+### REST API (any tool)
+
+Anything that can make HTTP requests can use mem-zero directly:
+
+```bash
+# Store a memory
+curl -X POST http://your-host:8765/api/v1/projects/my-project/memories \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Switched from Redis to PostgreSQL for session storage because we need ACID transactions"}'
+
+# Search memories
+curl -X POST http://your-host:8765/api/v1/projects/my-project/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "database decision", "top_k": 5}'
+```
+
+The project slug must be lowercase alphanumeric with hyphens or underscores (1-63 chars). Each unique slug creates an isolated collection.
 
 ## How it works
 
-Claude Code projects connect via MCP at `/mcp/{project-slug}/http/{user-id}`. The `project-slug` maps to a dedicated Qdrant collection (`mem0_{slug}`), so memories written by one project are invisible to another.
-
-**Memory pipeline:**
-
-1. Text comes in via MCP `add_memories` or REST API
+1. Text comes in via MCP or REST API
 2. LLM extracts atomic facts (e.g. "User prefers Python over R")
 3. Each fact is checked against existing memories for duplicates
 4. Novel facts are embedded and stored; duplicates are merged or skipped
@@ -32,18 +85,7 @@ mem-zero supports three LLM backends. The default is **bundled** — no external
 
 **Fallback:** When using `ollama`, if the Ollama server is unreachable, requests automatically fall back to the bundled model. The fallback is lazy — the bundled model only loads into memory on the first failure.
 
-## Quick start (Docker)
-
-```bash
-# Self-contained — no external LLM needed
-docker run -d \
-  --name mem-zero \
-  -p 8765:8765 \
-  -v mem-zero-data:/mem0/storage \
-  ghcr.io/sworcery/mem-zero:latest
-```
-
-With Ollama:
+### Using with Ollama
 
 ```bash
 docker run -d \
@@ -55,17 +97,18 @@ docker run -d \
   ghcr.io/sworcery/mem-zero:latest
 ```
 
-## Connecting Claude Code
-
-Add the MCP server to your project:
+### Using with OpenAI (or compatible APIs)
 
 ```bash
-claude mcp add mem-zero --transport http \
-  "http://your-host:8765/mcp/your-project-slug/http/your-user-id" \
-  -s local
+docker run -d \
+  --name mem-zero \
+  -p 8765:8765 \
+  -v mem-zero-data:/mem0/storage \
+  -e OPENAI_API_KEY=sk-... \
+  ghcr.io/sworcery/mem-zero:latest
 ```
 
-The project slug must be lowercase alphanumeric with hyphens or underscores (1-63 chars). Each unique slug creates an isolated collection.
+Works with any OpenAI-compatible API (Groq, Together, etc.) by setting `OPENAI_BASE_URL`.
 
 ## Web dashboard
 
@@ -75,6 +118,8 @@ A management UI is served at the root URL (`http://your-host:8765/`). From the d
 - View, search, and delete memories per project
 - Delete entire projects
 - Add new memories manually
+
+Optionally protect it with basic auth via `DASHBOARD_USER` and `DASHBOARD_PASS`.
 
 ## MCP tools
 
@@ -161,3 +206,11 @@ The container bundles everything into a single image using s6-overlay for proces
 External LLMs (Ollama, OpenAI) are supported as alternatives. When using Ollama, the bundled model serves as an automatic fallback if Ollama is unreachable.
 
 Project isolation is enforced at the Qdrant collection level. Each project slug maps to `{prefix}_{slug}`, and all queries are scoped to a single collection.
+
+## Unraid
+
+An Unraid Docker template is included at `unraid-template.xml`. Install it through Community Applications or manually add the template to your Docker configuration.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
