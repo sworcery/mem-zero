@@ -72,7 +72,11 @@ async def create_memory(
     user_id: str = "default",
 ) -> dict[str, object]:
     slug = _validated_slug(slug)
-    ids = await engine.add(slug, user_id, [body.text], body.metadata or None)
+    try:
+        ids = await engine.add(slug, user_id, [body.text], body.metadata or None)
+    except Exception as exc:
+        logger.exception("Failed to add memory")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"stored": len(ids), "ids": ids}
 
 
