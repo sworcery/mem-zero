@@ -7,13 +7,15 @@
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
   <Support/>
+  <WebUI>http://[IP]:[PORT:8765]/</WebUI>
   <Overview>Project-isolated MCP memory server with embedded Qdrant.</Overview>
   <Category>Tools:</Category>
   <Icon/>
   <ExtraParams>--label com.centurylinklabs.watchtower.enable=true --add-host=host.docker.internal:host-gateway</ExtraParams>
   <DateInstalled/>
   <Description>Project-isolated MCP memory server with embedded Qdrant vector database, backed by Ollama embeddings.</Description>
-  <Config Name="MCP Server Port" Target="8765" Default="8765" Mode="tcp" Description="MCP server HTTP port" Type="Port" Display="always" Required="true" Mask="false">8765</Config>
+  <Config Name="WebUI Port" Target="8765" Default="8765" Mode="tcp" Description="Web dashboard and MCP server HTTP port" Type="Port" Display="always" Required="true" Mask="false">8765</Config>
+  <Config Name="Qdrant Port" Target="6333" Default="" Mode="tcp" Description="Qdrant API port (optional, for direct access)" Type="Port" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="Storage" Target="/mem0/storage" Default="/mnt/user/appdata/mem-zero" Mode="rw" Description="Persistent storage for Qdrant data" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/mem-zero</Config>
   <Config Name="Ollama URL" Target="OLLAMA_BASE_URL" Default="http://192.168.1.10:11434" Mode="" Description="Ollama API base URL" Type="Variable" Display="always" Required="true" Mask="false">http://192.168.1.10:11434</Config>
   <Config Name="LLM Model" Target="LLM_MODEL" Default="qwen2.5:32b" Mode="" Description="Ollama language model for memory extraction" Type="Variable" Display="always" Required="true" Mask="false">qwen2.5:32b</Config>
