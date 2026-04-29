@@ -51,13 +51,14 @@ WORKDIR /app
 COPY pyproject.toml .
 RUN python3 -c "\
 import tomllib, pathlib; \
-deps = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['dependencies']; \
+d = tomllib.loads(pathlib.Path('pyproject.toml').read_text()); \
+deps = d['project']['dependencies'] + d['build-system']['requires']; \
 print('\n'.join(deps))" > /tmp/deps.txt && \
     pip install -r /tmp/deps.txt && rm /tmp/deps.txt
 
 # Install the package (re-runs on source changes but skips dep download)
 COPY src/ src/
-RUN pip install --no-deps .
+RUN pip install --no-deps --no-build-isolation .
 
 COPY rootfs/ /
 RUN find /etc/cont-init.d -type f -exec chmod +x {} \; && \
