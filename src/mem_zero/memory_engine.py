@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -9,6 +10,9 @@ import httpx
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
     PointStruct,
     VectorParams,
 )
@@ -20,8 +24,48 @@ logger = logging.getLogger(__name__)
 
 RESERVED_PAYLOAD_KEYS = frozenset({"text", "user_id", "project", "created_at", "updated_at"})
 
+EXTRACT_PROMPT = """\
+You are a memory extraction system. Extract distinct, atomic facts from the \
+input text. Each fact should be a single, self-contained statement that captures \
+one piece of information — a preference, habit, biographical detail, technical \
+choice, opinion, or anything worth remembering about the user.
+
+Rules:
+- Write each fact as a short, third-person statement.
+- Do NOT include facts that are purely transient or conversational filler.
+- If the text contains no memorable facts, return an empty list.
+- Respond with ONLY a JSON array of strings, no other text.
+
+Example input: "I'm a data scientist working at Acme Corp. I prefer Python over R \
+and I've been using PostgreSQL for my data pipelines."
+
+Example output: ["User is a data scientist", "User works at Acme Corp", \
+"User prefers Python over R", "User uses PostgreSQL for data pipelines"]
+"""
+
+DEDUP_PROMPT = """\
+You are a memory deduplication system. Compare a NEW fact against EXISTING \
+memories and decide what to do.
+
+Respond with ONLY a JSON object:
+- If the new fact is truly novel: {{"action": "add"}}
+- If it updates/replaces an existing memory: \
+{{"action": "update", "id": "<memory_id>", "text": "<merged text>"}}
+- If it duplicates an existing memory with no new info: {{"action": "skip"}}
+
+EXISTING MEMORIES:
+{existing}
+
+NEW FACT:
+{new_fact}
+"""
+
 
 class EmbeddingError(Exception):
+    pass
+
+
+class LLMError(Exception):
     pass
 
 
@@ -89,6 +133,98 @@ class MemoryEngine:
         await self._qdrant.get_collections()
         return True
 
+    async def _llm_generate(self, system: str, user: str) -> str:
+        try:
+            resp = await self._http.post(
+                "/api/chat",
+                json={
+                    "model": self._config.llm_model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    "stream": False,
+                    "format": "json",
+                },
+                timeout=120.0,
+            )
+            resp.raise_for_status()
+            return resp.json()["message"]["content"]
+        except (httpx.HTTPError, KeyError) as exc:
+            raise LLMError(f"Ollama LLM call failed: {exc}") from exc
+
+    async def _extract_facts(self, text: str) -> list[str]:
+        raw = await self._llm_generate(EXTRACT_PROMPT, text)
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict) and "facts" in parsed:
+                parsed = parsed["facts"]
+            if not isinstance(parsed, list):
+                return [str(parsed)]
+            return [str(f) for f in parsed if f]
+        except json.JSONDecodeError:
+            logger.warning("LLM returned non-JSON for extraction, storing raw text")
+            return [text]
+
+    async def _dedup_fact(
+        self, collection: str, fact: str, user_id: str
+    ) -> tuple[str, str | None, str | None]:
+        results = await self.search_in_collection(collection, fact, top_k=5, user_id=user_id)
+        if not results:
+            return "add", None, None
+
+        existing_lines = "\n".join(
+            f"- [id={r.id}] {r.text}" for r in results if r.score and r.score > 0.5
+        )
+        if not existing_lines:
+            return "add", None, None
+
+        prompt = DEDUP_PROMPT.format(existing=existing_lines, new_fact=fact)
+        raw = await self._llm_generate(prompt, "")
+        try:
+            result = json.loads(raw)
+            action = result.get("action", "add")
+            if action == "update":
+                return "update", result.get("id"), result.get("text", fact)
+            if action == "skip":
+                return "skip", None, None
+            return "add", None, None
+        except json.JSONDecodeError:
+            return "add", None, None
+
+    async def search_in_collection(
+        self, collection: str, query: str, top_k: int = 10, user_id: str | None = None
+    ) -> list[MemoryRecord]:
+        vectors = await self.embed([query])
+        query_filter = None
+        if user_id:
+            query_filter = Filter(
+                must=[FieldCondition(key="user_id", match=MatchValue(value=user_id))]
+            )
+        results = (
+            await self._qdrant.query_points(
+                collection_name=collection,
+                query=vectors[0],
+                query_filter=query_filter,
+                limit=top_k,
+            )
+        ).points
+
+        return [
+            MemoryRecord(
+                id=str(hit.id),
+                text=hit.payload.get("text", ""),
+                user_id=hit.payload.get("user_id", ""),
+                created_at=hit.payload.get("created_at", 0),
+                updated_at=hit.payload.get("updated_at", 0),
+                metadata={
+                    k: v for k, v in hit.payload.items() if k not in RESERVED_PAYLOAD_KEYS
+                },
+                score=hit.score,
+            )
+            for hit in results
+        ]
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
         try:
             resp = await self._http.post(
@@ -109,30 +245,80 @@ class MemoryEngine:
         metadata: dict[str, object] | None = None,
     ) -> list[str]:
         collection = await self._ensure_collection(project_slug)
-        vectors = await self.embed(texts)
         now = time.time()
         ids: list[str] = []
-        points: list[PointStruct] = []
 
         clean_meta = {
             k: v for k, v in (metadata or {}).items() if k not in RESERVED_PAYLOAD_KEYS
         }
 
-        for text, vector in zip(texts, vectors, strict=True):
-            point_id = str(uuid.uuid4())
-            ids.append(point_id)
-            payload = {
-                **clean_meta,
-                "text": text,
-                "user_id": user_id,
-                "project": project_slug,
-                "created_at": now,
-                "updated_at": now,
-            }
-            points.append(PointStruct(id=point_id, vector=vector, payload=payload))
+        all_facts: list[str] = []
+        for text in texts:
+            facts = await self._extract_facts(text)
+            all_facts.extend(facts)
 
-        await self._qdrant.upsert(collection_name=collection, points=points)
-        logger.info("Added %d memories to %s", len(points), collection)
+        if not all_facts:
+            return ids
+
+        for fact in all_facts:
+            action, update_id, merged_text = await self._dedup_fact(
+                collection, fact, user_id
+            )
+
+            if action == "skip":
+                logger.debug("Skipping duplicate: %s", fact[:80])
+                continue
+
+            if action == "update" and update_id:
+                text_to_store = merged_text or fact
+                vectors = await self.embed([text_to_store])
+                try:
+                    validate_memory_id(update_id)
+                    await self._qdrant.upsert(
+                        collection_name=collection,
+                        points=[
+                            PointStruct(
+                                id=update_id,
+                                vector=vectors[0],
+                                payload={
+                                    **clean_meta,
+                                    "text": text_to_store,
+                                    "user_id": user_id,
+                                    "project": project_slug,
+                                    "created_at": now,
+                                    "updated_at": now,
+                                },
+                            )
+                        ],
+                    )
+                    ids.append(update_id)
+                    logger.info("Updated memory %s in %s", update_id, collection)
+                except ValueError:
+                    action = "add"
+
+            if action == "add":
+                vectors = await self.embed([fact])
+                point_id = str(uuid.uuid4())
+                ids.append(point_id)
+                await self._qdrant.upsert(
+                    collection_name=collection,
+                    points=[
+                        PointStruct(
+                            id=point_id,
+                            vector=vectors[0],
+                            payload={
+                                **clean_meta,
+                                "text": fact,
+                                "user_id": user_id,
+                                "project": project_slug,
+                                "created_at": now,
+                                "updated_at": now,
+                            },
+                        )
+                    ],
+                )
+                logger.info("Added memory %s to %s", point_id, collection)
+
         return ids
 
     async def search(
@@ -142,32 +328,7 @@ class MemoryEngine:
         top_k: int = 10,
     ) -> list[MemoryRecord]:
         collection = await self._ensure_collection(project_slug)
-        vectors = await self.embed([query])
-
-        results = (
-            await self._qdrant.query_points(
-                collection_name=collection,
-                query=vectors[0],
-                limit=top_k,
-            )
-        ).points
-
-        return [
-            MemoryRecord(
-                id=str(hit.id),
-                text=hit.payload.get("text", ""),
-                user_id=hit.payload.get("user_id", ""),
-                created_at=hit.payload.get("created_at", 0),
-                updated_at=hit.payload.get("updated_at", 0),
-                metadata={
-                    k: v
-                    for k, v in hit.payload.items()
-                    if k not in RESERVED_PAYLOAD_KEYS
-                },
-                score=hit.score,
-            )
-            for hit in results
-        ]
+        return await self.search_in_collection(collection, query, top_k=top_k)
 
     async def list_all(
         self,

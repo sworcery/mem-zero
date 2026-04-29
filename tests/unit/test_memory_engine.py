@@ -93,8 +93,18 @@ class TestAdd:
     async def test_upserts_to_correct_collection(
         self, engine: MemoryEngine, mock_qdrant: AsyncMock
     ) -> None:
-        with patch.object(
-            engine, "embed", new_callable=AsyncMock, return_value=[[0.1] * 768]
+        with (
+            patch.object(
+                engine, "embed", new_callable=AsyncMock, return_value=[[0.1] * 768]
+            ),
+            patch.object(
+                engine, "_extract_facts", new_callable=AsyncMock,
+                return_value=["test memory"],
+            ),
+            patch.object(
+                engine, "_dedup_fact", new_callable=AsyncMock,
+                return_value=("add", None, None),
+            ),
         ):
             await engine.add("project-a", "john", ["test memory"])
             call_args = mock_qdrant.upsert.call_args
@@ -104,8 +114,18 @@ class TestAdd:
     async def test_returns_ids(
         self, engine: MemoryEngine, mock_qdrant: AsyncMock
     ) -> None:
-        with patch.object(
-            engine, "embed", new_callable=AsyncMock, return_value=[[0.1] * 768]
+        with (
+            patch.object(
+                engine, "embed", new_callable=AsyncMock, return_value=[[0.1] * 768]
+            ),
+            patch.object(
+                engine, "_extract_facts", new_callable=AsyncMock,
+                return_value=["memory one"],
+            ),
+            patch.object(
+                engine, "_dedup_fact", new_callable=AsyncMock,
+                return_value=("add", None, None),
+            ),
         ):
             ids = await engine.add("project-a", "john", ["memory one"])
             assert len(ids) == 1
@@ -115,8 +135,18 @@ class TestAdd:
     async def test_reserved_keys_cannot_be_overwritten(
         self, engine: MemoryEngine, mock_qdrant: AsyncMock
     ) -> None:
-        with patch.object(
-            engine, "embed", new_callable=AsyncMock, return_value=[[0.1] * 768]
+        with (
+            patch.object(
+                engine, "embed", new_callable=AsyncMock, return_value=[[0.1] * 768]
+            ),
+            patch.object(
+                engine, "_extract_facts", new_callable=AsyncMock,
+                return_value=["test"],
+            ),
+            patch.object(
+                engine, "_dedup_fact", new_callable=AsyncMock,
+                return_value=("add", None, None),
+            ),
         ):
             await engine.add(
                 "project-a",

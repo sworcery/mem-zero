@@ -30,8 +30,18 @@ class TestProjectIsolation:
 
     @pytest.mark.asyncio
     async def test_add_targets_correct_collection(self, engine: MemoryEngine) -> None:
-        with patch.object(
-            engine, "embed", new_callable=AsyncMock, return_value=[[0.1] * 768]
+        with (
+            patch.object(
+                engine, "embed", new_callable=AsyncMock, return_value=[[0.1] * 768]
+            ),
+            patch.object(
+                engine, "_extract_facts", new_callable=AsyncMock,
+                return_value=["memory for alpha"],
+            ),
+            patch.object(
+                engine, "_dedup_fact", new_callable=AsyncMock,
+                return_value=("add", None, None),
+            ),
         ):
             await engine.add("alpha", "user1", ["memory for alpha"])
             call = engine._qdrant.upsert.call_args
