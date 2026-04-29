@@ -8,7 +8,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        run: |
+          git init
+          git remote add origin ${{ github.server_url }}/${{ github.repository }}.git
+          git -c http.extraHeader="Authorization: basic $(printf '%s' 'x-access-token:${{ github.token }}' | base64 -w0)" \
+            fetch --depth=1 origin ${{ github.sha }}
+          git checkout FETCH_HEAD
 
       - name: Build image
         run: docker build -t 192.168.1.10:5000/mem-zero:dev .
