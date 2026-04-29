@@ -23,7 +23,10 @@
   <Config Name="Embedder Model" Target="EMBEDDER_MODEL" Default="nomic-embed-text" Mode="" Description="Ollama embedding model (only used when backend=ollama)" Type="Variable" Display="advanced" Required="false" Mask="false">nomic-embed-text</Config>
   <Config Name="Embedder Dimensions" Target="EMBEDDER_DIMENSIONS" Default="768" Mode="" Description="Embedding vector dimensions" Type="Variable" Display="advanced" Required="false" Mask="false">768</Config>
   <Config Name="OpenAI API Key" Target="OPENAI_API_KEY" Default="" Mode="" Description="API key for OpenAI-compatible backend (only used when backend=openai)" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
-  <Config Name="OpenAI Base URL" Target="OPENAI_BASE_URL" Default="https://api.openai.com/v1" Mode="" Description="Base URL for OpenAI-compatible API" Type="Variable" Display="advanced" Required="false" Mask="false">https://api.openai.com/v1</Config>
+  <Config Name="OpenAI Base URL" Target="OPENAI_BASE_URL" Default="https://api.openai.com/v1" Mode="" Description="Base URL for OpenAI-compatible API (works with Groq, Anthropic, etc.)" Type="Variable" Display="advanced" Required="false" Mask="false">https://api.openai.com/v1</Config>
+  <Config Name="OpenAI Model" Target="OPENAI_MODEL" Default="gpt-4o-mini" Mode="" Description="Chat model for OpenAI-compatible backend" Type="Variable" Display="advanced" Required="false" Mask="false">gpt-4o-mini</Config>
+  <Config Name="OpenAI Embed Model" Target="OPENAI_EMBED_MODEL" Default="text-embedding-3-small" Mode="" Description="Embedding model for OpenAI-compatible backend" Type="Variable" Display="advanced" Required="false" Mask="false">text-embedding-3-small</Config>
+  <Config Name="Bundled Threads" Target="BUNDLED_THREADS" Default="4" Mode="" Description="CPU threads for bundled LLM inference" Type="Variable" Display="advanced" Required="false" Mask="false">4</Config>
   <Config Name="Dashboard Username" Target="DASHBOARD_USER" Default="" Mode="" Description="Username for web dashboard login (leave empty to disable auth)" Type="Variable" Display="always" Required="true" Mask="false"></Config>
   <Config Name="Dashboard Password" Target="DASHBOARD_PASS" Default="" Mode="" Description="Password for web dashboard login" Type="Variable" Display="always" Required="true" Mask="true"></Config>
 </Container>
