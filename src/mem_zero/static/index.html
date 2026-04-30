@@ -879,15 +879,17 @@
     setTimeout(() => el.remove(), 3500);
   }
 
-  function confirm(title, body) {
+  function confirm(title, body, confirmLabel = 'Delete') {
     return new Promise(resolve => {
       modalTitle.textContent = title;
       modalBody.textContent  = body;
+      modalConfirm.textContent = confirmLabel;
       modalBackdrop.classList.add('open');
       const cleanup = val => {
         modalBackdrop.classList.remove('open');
         modalConfirm.onclick = null;
         modalCancel.onclick  = null;
+        modalConfirm.textContent = 'Delete';
         resolve(val);
       };
       modalConfirm.onclick = () => cleanup(true);
@@ -1154,7 +1156,8 @@
       }
       const ok = await confirm(
         'Consolidate memories?',
-        `Found ${preview.clusters} cluster${preview.clusters !== 1 ? 's' : ''} of similar memories. This will merge related fragments into clean summaries. This cannot be undone.`
+        `Found ${preview.clusters} cluster${preview.clusters !== 1 ? 's' : ''} of similar memories. This will merge related fragments into clean summaries. This cannot be undone.`,
+        'Consolidate'
       );
       if (!ok) return;
       consolidateBtn.textContent = 'Consolidating…';
