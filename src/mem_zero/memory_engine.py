@@ -137,8 +137,8 @@ class MemoryEngine:
             raise LLMError(f"Fact extraction failed: {exc}") from exc
         try:
             parsed = json.loads(raw)
-            if isinstance(parsed, dict) and "facts" in parsed:
-                parsed = parsed["facts"]
+            if isinstance(parsed, dict):
+                parsed = parsed["facts"] if "facts" in parsed else list(parsed.keys())
             if not isinstance(parsed, list):
                 return [str(parsed)]
             facts = [str(f) for f in parsed if f]
@@ -355,6 +355,36 @@ class MemoryEngine:
         self._ensured_collections.discard(collection)
         await self._ensure_collection(project_slug)
         return count
+
+    async def reembed_all(self, project_slug: str) -> int:
+        collection = await self._ensure_collection(project_slug)
+        updated = 0
+        offset = None
+        while True:
+            points, next_offset = await self._qdrant.scroll(
+                collection_name=collection,
+                limit=50,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not points:
+                break
+            for pt in points:
+                text = pt.payload.get("text", "")
+                if not text:
+                    continue
+                vectors = await self._backend.embed([text])
+                await self._qdrant.upsert(
+                    collection_name=collection,
+                    points=[PointStruct(id=pt.id, vector=vectors[0], payload=pt.payload)],
+                )
+                updated += 1
+            if next_offset is None:
+                break
+            offset = next_offset
+        logger.info("Re-embedded %d points in %s", updated, collection)
+        return updated
 
     async def delete_project(self, project_slug: str) -> bool:
         collection = self._config.collection_name(project_slug)

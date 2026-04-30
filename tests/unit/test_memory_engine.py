@@ -178,6 +178,24 @@ class TestExtractFacts:
         facts = await engine._extract_facts("some text")
         assert facts == ["fact one", "fact two"]
 
+    @pytest.mark.asyncio
+    async def test_dict_keys_extracted_as_facts(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        mock_backend.generate.return_value = (
+            '{"User likes Python": true, "User works at Acme": true}'
+        )
+        facts = await engine._extract_facts("some text")
+        assert facts == ["User likes Python", "User works at Acme"]
+
+    @pytest.mark.asyncio
+    async def test_dict_with_facts_key(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        mock_backend.generate.return_value = '{"facts": ["fact one", "fact two"]}'
+        facts = await engine._extract_facts("some text")
+        assert facts == ["fact one", "fact two"]
+
 
 class TestDedupDegraded:
     @pytest.mark.asyncio

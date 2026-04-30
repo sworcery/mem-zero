@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="mem-zero",
     description="Project-isolated MCP memory server",
-    version="0.1.35.4",
+    version="0.1.35.5",
     lifespan=lifespan,
 )
 
@@ -219,6 +219,17 @@ async def remove_project(slug: str = Path(...)) -> dict[str, bool]:
     if not removed:
         raise HTTPException(status_code=404, detail="Project not found")
     return {"deleted": True}
+
+
+@app.post("/api/v1/projects/{slug}/reembed")
+async def reembed_memories(slug: str = Path(...)) -> dict[str, int]:
+    slug = _validated_slug(slug)
+    try:
+        count = await engine.reembed_all(slug)
+    except Exception as exc:
+        logger.exception("Re-embed failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"reembedded": count}
 
 
 _static_dir = FilePath(__file__).parent / "static"

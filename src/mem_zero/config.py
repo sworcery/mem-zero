@@ -108,7 +108,9 @@ class Config:
             ),
             bundled_threads=_int("BUNDLED_THREADS", 4),
             openai_api_key=_opt("OPENAI_API_KEY"),
-            openai_base_url=_ensure_scheme(_str("OPENAI_BASE_URL", "https://api.openai.com/v1"), "https"),
+            openai_base_url=_ensure_scheme(
+                _str("OPENAI_BASE_URL", "https://api.openai.com/v1"), "https"
+            ),
             openai_model=_str("OPENAI_MODEL", "gpt-4o-mini"),
             openai_embed_model=_str("OPENAI_EMBED_MODEL", "text-embedding-3-small"),
             collection_prefix=_str("COLLECTION_PREFIX", "mem-zero"),
