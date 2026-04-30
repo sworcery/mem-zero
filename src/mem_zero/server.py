@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="mem-zero",
     description="Project-isolated MCP memory server",
-    version="0.1.35.6",
+    version="0.1.35.7",
     lifespan=lifespan,
 )
 
@@ -61,7 +61,11 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             key = request.query_params.get("api_key", "")
             if key and secrets.compare_digest(key, self._api_key):
                 return await call_next(request)
-            return Response(status_code=401, content="Invalid or missing API key")
+            return Response(
+                status_code=401,
+                headers={"WWW-Authenticate": 'Bearer realm="mem-zero"'},
+                content="Invalid or missing API key",
+            )
         return await call_next(request)
 
 
@@ -230,6 +234,17 @@ async def reembed_memories(slug: str = Path(...)) -> dict[str, int]:
         logger.exception("Re-embed failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"reembedded": count}
+
+
+@app.post("/api/v1/projects/{slug}/cleanup")
+async def cleanup_memories(slug: str = Path(...)) -> dict[str, int]:
+    slug = _validated_slug(slug)
+    try:
+        result = await engine.cleanup_text(slug)
+    except Exception as exc:
+        logger.exception("Cleanup failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return result
 
 
 _static_dir = FilePath(__file__).parent / "static"

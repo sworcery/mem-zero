@@ -386,6 +386,77 @@ class MemoryEngine:
         logger.info("Re-embedded %d points in %s", updated, collection)
         return updated
 
+    @staticmethod
+    def _clean_dict_text(text: str) -> list[str] | None:
+        if not (text.startswith("{") and text.endswith("}")):
+            return None
+        try:
+            import ast
+            parsed = ast.literal_eval(text)
+            if not isinstance(parsed, dict):
+                return None
+            keys = [str(k).strip() for k in parsed if str(k).strip()]
+            return keys if keys else None
+        except (ValueError, SyntaxError):
+            return None
+
+    async def cleanup_text(self, project_slug: str) -> dict[str, int]:
+        collection = await self._ensure_collection(project_slug)
+        cleaned = 0
+        split = 0
+        skipped = 0
+        offset = None
+        while True:
+            points, next_offset = await self._qdrant.scroll(
+                collection_name=collection,
+                limit=50,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not points:
+                break
+            for pt in points:
+                text = pt.payload.get("text", "")
+                facts = self._clean_dict_text(text)
+                if facts is None:
+                    skipped += 1
+                    continue
+                payload = dict(pt.payload)
+                if len(facts) == 1:
+                    payload["text"] = facts[0]
+                    vectors = await self._backend.embed([facts[0]])
+                    await self._qdrant.upsert(
+                        collection_name=collection,
+                        points=[PointStruct(id=pt.id, vector=vectors[0], payload=payload)],
+                    )
+                    cleaned += 1
+                else:
+                    await self._qdrant.delete(
+                        collection_name=collection,
+                        points_selector=[str(pt.id)],
+                    )
+                    now = payload.get("updated_at", payload.get("created_at", 0))
+                    for fact in facts:
+                        new_payload = {**payload, "text": fact, "updated_at": now}
+                        vectors = await self._backend.embed([fact])
+                        point_id = str(uuid.uuid4())
+                        await self._qdrant.upsert(
+                            collection_name=collection,
+                            points=[PointStruct(
+                                id=point_id, vector=vectors[0], payload=new_payload,
+                            )],
+                        )
+                    split += 1
+                    cleaned += 1
+            if next_offset is None:
+                break
+            offset = next_offset
+        logger.info(
+            "Cleanup %s: %d cleaned, %d split, %d skipped", collection, cleaned, split, skipped
+        )
+        return {"cleaned": cleaned, "split_into_multiple": split, "skipped": skipped}
+
     async def delete_project(self, project_slug: str) -> bool:
         collection = self._config.collection_name(project_slug)
         existing = {c.name for c in (await self._qdrant.get_collections()).collections}
