@@ -17,6 +17,7 @@ def config() -> Config:
 def mock_backend() -> AsyncMock:
     backend = AsyncMock()
     backend.embedding_dimensions = 768
+    backend.is_degraded = False
     backend.embed.return_value = [[0.1] * 768]
     backend.generate.return_value = '["test"]'
     return backend

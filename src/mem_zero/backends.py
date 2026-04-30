@@ -25,6 +25,10 @@ class LLMBackend(ABC):
     @abstractmethod
     def embedding_dimensions(self) -> int: ...
 
+    @property
+    def is_degraded(self) -> bool:
+        return False
+
     async def close(self) -> None:  # noqa: B027
         pass
 
@@ -188,6 +192,7 @@ class FallbackBackend(LLMBackend):
         self._primary = primary
         self._fallback_factory = fallback_factory
         self._fallback: BundledBackend | None = None
+        self._using_fallback = False
 
     def _get_fallback(self) -> BundledBackend:
         if self._fallback is None:
@@ -199,18 +204,28 @@ class FallbackBackend(LLMBackend):
     def embedding_dimensions(self) -> int:
         return self._primary.embedding_dimensions
 
+    @property
+    def is_degraded(self) -> bool:
+        return self._using_fallback
+
     async def generate(self, system: str, user: str) -> str:
         try:
-            return await self._primary.generate(system, user)
+            result = await self._primary.generate(system, user)
+            self._using_fallback = False
+            return result
         except Exception as exc:
             logger.warning("Primary backend failed (%s), using bundled fallback", exc)
+            self._using_fallback = True
             return await self._get_fallback().generate(system, user)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         try:
-            return await self._primary.embed(texts)
+            result = await self._primary.embed(texts)
+            self._using_fallback = False
+            return result
         except Exception as exc:
             logger.warning("Primary embedding failed (%s), using bundled fallback", exc)
+            self._using_fallback = True
             return await self._get_fallback().embed(texts)
 
     async def close(self) -> None:

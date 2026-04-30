@@ -141,7 +141,11 @@ class MemoryEngine:
                 parsed = parsed["facts"]
             if not isinstance(parsed, list):
                 return [str(parsed)]
-            return [str(f) for f in parsed if f]
+            facts = [str(f) for f in parsed if f]
+            if not facts:
+                logger.warning("LLM returned empty fact list, storing raw text")
+                return [text]
+            return facts
         except json.JSONDecodeError:
             logger.warning("LLM returned non-JSON for extraction, storing raw text")
             return [text]
@@ -149,6 +153,10 @@ class MemoryEngine:
     async def _dedup_fact(
         self, collection: str, fact: str, user_id: str
     ) -> tuple[str, str | None, str | None]:
+        if self._backend.is_degraded:
+            logger.debug("Skipping LLM dedup (degraded mode), adding directly")
+            return "add", None, None
+
         results = await self.search_in_collection(collection, fact, top_k=5, user_id=user_id)
         if not results:
             return "add", None, None

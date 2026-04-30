@@ -24,6 +24,7 @@ def config() -> Config:
 def mock_backend() -> AsyncMock:
     backend = AsyncMock()
     backend.embedding_dimensions = 768
+    backend.is_degraded = False
     backend.embed.return_value = [[0.1] * 768]
     backend.generate.return_value = '["test memory"]'
     return backend
@@ -158,6 +159,44 @@ class TestAdd:
             point = call_args.kwargs["points"][0]
             assert point.payload["user_id"] == "john"
             assert point.payload["project"] == "project-a"
+
+
+class TestExtractFacts:
+    @pytest.mark.asyncio
+    async def test_empty_list_falls_back_to_raw_text(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        mock_backend.generate.return_value = "[]"
+        facts = await engine._extract_facts("some user input")
+        assert facts == ["some user input"]
+
+    @pytest.mark.asyncio
+    async def test_valid_facts_returned(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        mock_backend.generate.return_value = '["fact one", "fact two"]'
+        facts = await engine._extract_facts("some text")
+        assert facts == ["fact one", "fact two"]
+
+
+class TestDedupDegraded:
+    @pytest.mark.asyncio
+    async def test_skips_dedup_when_degraded(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        mock_backend.is_degraded = True
+        action, _, _ = await engine._dedup_fact("test_proj", "new fact", "john")
+        assert action == "add"
+        mock_backend.generate.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_runs_dedup_when_not_degraded(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        mock_backend.is_degraded = False
+        mock_qdrant.query_points.return_value = MagicMock(points=[])
+        action, _, _ = await engine._dedup_fact("test_proj", "new fact", "john")
+        assert action == "add"
 
 
 class TestSearch:
