@@ -26,6 +26,12 @@ set_engine(engine)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    try:
+        count = await engine.migrate_collection_prefix("mem0")
+        if count:
+            logger.info("Migrated %d collection(s) from mem0_ to mem-zero_", count)
+    except Exception:
+        logger.exception("Collection prefix migration failed — continuing with existing data")
     yield
     await engine.close()
 
@@ -33,7 +39,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="mem-zero",
     description="Project-isolated MCP memory server",
-    version="0.1.35",
+    version="0.1.35.1",
     lifespan=lifespan,
 )
 

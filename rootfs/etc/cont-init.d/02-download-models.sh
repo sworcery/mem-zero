@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODEL_DIR="/mem0/storage/models"
+MODEL_DIR="/mem-zero/storage/models"
 GGUF_PATH="${BUNDLED_MODEL_PATH:-$MODEL_DIR/qwen2.5-3b-instruct-q4_k_m.gguf}"
 GGUF_URL="https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf"
 FASTEMBED_CACHE="${FASTEMBED_CACHE_PATH:-$MODEL_DIR/fastembed}"

@@ -19,7 +19,7 @@ AI coding assistants forget everything between sessions. Every new conversation 
 docker run -d \
   --name mem-zero \
   -p 8765:8765 \
-  -v mem-zero-data:/mem0/storage \
+  -v mem-zero-data:/mem-zero/storage \
   ghcr.io/sworcery/mem-zero:latest
 ```
 
@@ -91,7 +91,7 @@ mem-zero supports three LLM backends. The default is **bundled** — no external
 docker run -d \
   --name mem-zero \
   -p 8765:8765 \
-  -v mem-zero-data:/mem0/storage \
+  -v mem-zero-data:/mem-zero/storage \
   -e OLLAMA_BASE_URL=http://your-ollama-host:11434 \
   -e LLM_MODEL=qwen2.5:7b \
   ghcr.io/sworcery/mem-zero:latest
@@ -103,7 +103,7 @@ docker run -d \
 docker run -d \
   --name mem-zero \
   -p 8765:8765 \
-  -v mem-zero-data:/mem0/storage \
+  -v mem-zero-data:/mem-zero/storage \
   -e OPENAI_API_KEY=sk-... \
   ghcr.io/sworcery/mem-zero:latest
 ```
@@ -160,6 +160,22 @@ The dashboard has its own basic auth (`DASHBOARD_USER`/`DASHBOARD_PASS`) since b
 | `delete_memories(memory_ids)` | Delete specific memories by ID |
 | `delete_all_memories()` | Delete all memories for the project |
 
+## Best practices
+
+mem-zero works best when you treat it as your primary context store, not a backup. AI coding assistants lose everything when conversations compact or end — mem-zero doesn't.
+
+**Store as you go, not at the end.** After every meaningful action — bug fix, feature added, decision made, error hit — store it immediately. If you wait until the end of a session, you risk losing everything to context compaction before you get there.
+
+**Be specific.** Include file paths, function names, error messages, config values. "Fixed a bug in the server" is useless. "Fixed httpx.ConnectError in memory_engine.py — s6-overlay was discarding env vars, added S6_KEEP_ENV=1 to Dockerfile" is what you want.
+
+**Search first.** At the start of every conversation, search mem-zero for prior context on what you're about to work on. A well-maintained memory store means you never start from scratch.
+
+**Store decisions, not just actions.** When you choose approach A over B, store both — what you picked and what you rejected and why. Future sessions will face similar choices.
+
+**Store dead ends.** If you spend 30 minutes debugging something that turned out to be a red herring, store that too. It prevents future sessions from going down the same path.
+
+For Claude Code, add instructions to your `CLAUDE.md` telling the assistant to use mem-zero proactively. Without explicit instructions, most assistants won't store memories on their own.
+
 ## REST API
 
 ```
@@ -184,7 +200,7 @@ All settings are via environment variables.
 | `API_KEY` | — | API key for MCP and REST endpoints (disabled if empty) |
 | `LLM_BACKEND` | auto-detect | `bundled`, `ollama`, or `openai` |
 | `EMBEDDER_DIMENSIONS` | `768` | Vector dimensions |
-| `COLLECTION_PREFIX` | `mem0` | Qdrant collection name prefix |
+| `COLLECTION_PREFIX` | `mem-zero` | Qdrant collection name prefix |
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `8765` | Server port |
 | `DASHBOARD_USER` | — | Dashboard login username (auth disabled if empty) |
@@ -194,7 +210,7 @@ All settings are via environment variables.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `BUNDLED_MODEL_PATH` | `/mem0/storage/models/qwen2.5-3b-instruct-q4_k_m.gguf` | Path to GGUF model |
+| `BUNDLED_MODEL_PATH` | `/mem-zero/storage/models/qwen2.5-3b-instruct-q4_k_m.gguf` | Path to GGUF model |
 | `BUNDLED_EMBED_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | fastembed model name |
 | `BUNDLED_THREADS` | `4` | CPU threads for inference |
 
@@ -228,7 +244,7 @@ All settings are via environment variables.
 
 The container bundles everything into a single image using s6-overlay for process supervision:
 
-- **Qdrant** — embedded vector database, data persisted to `/mem0/storage`
+- **Qdrant** — embedded vector database, data persisted to `/mem-zero/storage`
 - **FastAPI** — HTTP server handling MCP transport, REST API, and static dashboard
 - **Qwen2.5-3B** — bundled LLM for fact extraction and dedup (CPU-only, ~1.8 GB RAM)
 - **fastembed** — bundled embedding model (nomic-embed-text, ~270 MB)

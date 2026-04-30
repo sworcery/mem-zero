@@ -14,8 +14,17 @@ def config() -> Config:
 
 
 @pytest.fixture
-def engine(config: Config) -> MemoryEngine:
-    eng = MemoryEngine(config)
+def mock_backend() -> AsyncMock:
+    backend = AsyncMock()
+    backend.embedding_dimensions = 768
+    backend.embed.return_value = [[0.1] * 768]
+    backend.generate.return_value = '["test"]'
+    return backend
+
+
+@pytest.fixture
+def engine(config: Config, mock_backend: AsyncMock) -> MemoryEngine:
+    eng = MemoryEngine(config, mock_backend)
     eng._qdrant = AsyncMock()
     eng._qdrant.get_collections.return_value = MagicMock(collections=[])
     eng._qdrant.get_collection.return_value = MagicMock(points_count=0)
@@ -32,9 +41,6 @@ class TestProjectIsolation:
     async def test_add_targets_correct_collection(self, engine: MemoryEngine) -> None:
         with (
             patch.object(
-                engine, "embed", new_callable=AsyncMock, return_value=[[0.1] * 768]
-            ),
-            patch.object(
                 engine, "_extract_facts", new_callable=AsyncMock,
                 return_value=["memory for alpha"],
             ),
@@ -50,12 +56,9 @@ class TestProjectIsolation:
     @pytest.mark.asyncio
     async def test_search_targets_correct_collection(self, engine: MemoryEngine) -> None:
         engine._qdrant.query_points.return_value = MagicMock(points=[])
-        with patch.object(
-            engine, "embed", new_callable=AsyncMock, return_value=[[0.1] * 768]
-        ):
-            await engine.search("beta", "query")
-            call = engine._qdrant.query_points.call_args
-            assert call.kwargs["collection_name"] == "iso_beta"
+        await engine.search("beta", "query")
+        call = engine._qdrant.query_points.call_args
+        assert call.kwargs["collection_name"] == "iso_beta"
 
     @pytest.mark.asyncio
     async def test_list_targets_correct_collection(self, engine: MemoryEngine) -> None:

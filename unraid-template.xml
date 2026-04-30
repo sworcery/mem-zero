@@ -16,7 +16,7 @@
   <Description>Project-isolated MCP memory server with embedded Qdrant vector database. Includes a bundled LLM for self-contained operation, or connect to Ollama/OpenAI.</Description>
   <Config Name="WebUI Port" Target="8765" Default="8765" Mode="tcp" Description="Web dashboard and MCP server HTTP port" Type="Port" Display="always" Required="true" Mask="false">8765</Config>
   <Config Name="Qdrant Port" Target="6333" Default="" Mode="tcp" Description="Qdrant API port (optional, for direct access)" Type="Port" Display="advanced" Required="false" Mask="false"></Config>
-  <Config Name="Storage" Target="/mem0/storage" Default="/mnt/user/appdata/mem-zero" Mode="rw" Description="Persistent storage for Qdrant data" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/mem-zero</Config>
+  <Config Name="Storage" Target="/mem-zero/storage" Default="/mnt/user/appdata/mem-zero" Mode="rw" Description="Persistent storage for Qdrant data" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/mem-zero</Config>
   <Config Name="LLM Backend" Target="LLM_BACKEND" Default="bundled" Mode="" Description="LLM backend: bundled (self-contained), ollama, or openai. Auto-detected if not set." Type="Variable" Display="always" Required="true" Mask="false">bundled</Config>
   <Config Name="Ollama URL" Target="OLLAMA_BASE_URL" Default="" Mode="" Description="Ollama API base URL (only used when backend=ollama)" Type="Variable" Display="always" Required="false" Mask="false"></Config>
   <Config Name="LLM Model" Target="LLM_MODEL" Default="qwen2.5:7b" Mode="" Description="Ollama language model (only used when backend=ollama)" Type="Variable" Display="advanced" Required="false" Mask="false">qwen2.5:7b</Config>

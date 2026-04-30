@@ -64,7 +64,7 @@ COPY rootfs/ /
 RUN find /etc/cont-init.d -type f -exec chmod +x {} \; && \
     find /etc/services.d -type f -name "run" -exec chmod +x {} \;
 
-ENV QDRANT__STORAGE__STORAGE_PATH=/mem0/storage/qdrant
+ENV QDRANT__STORAGE__STORAGE_PATH=/mem-zero/storage/qdrant
 ENV QDRANT__TELEMETRY_DISABLED=true
 ENV QDRANT_HOST=127.0.0.1
 ENV QDRANT_PORT=6333
@@ -73,11 +73,11 @@ ENV HOST=0.0.0.0
 ENV PORT=8765
 
 # Bundled model defaults (models stored on persistent volume)
-ENV BUNDLED_MODEL_PATH=/mem0/storage/models/qwen2.5-3b-instruct-q4_k_m.gguf
+ENV BUNDLED_MODEL_PATH=/mem-zero/storage/models/qwen2.5-3b-instruct-q4_k_m.gguf
 ENV BUNDLED_EMBED_MODEL=nomic-ai/nomic-embed-text-v1.5
-ENV FASTEMBED_CACHE_PATH=/mem0/storage/models/fastembed
+ENV FASTEMBED_CACHE_PATH=/mem-zero/storage/models/fastembed
 
-VOLUME ["/mem0/storage"]
+VOLUME ["/mem-zero/storage"]
 EXPOSE 8765 6333
 
 ENV S6_KEEP_ENV=1

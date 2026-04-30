@@ -5,7 +5,7 @@ services:
     ports:
       - "8765:8765"
     volumes:
-      - mem-zero-storage:/mem0/storage
+      - mem-zero-storage:/mem-zero/storage
     environment:
       # Backend: "bundled" (default, self-contained), "ollama", or "openai"
       # Auto-detected from env vars if not set explicitly.

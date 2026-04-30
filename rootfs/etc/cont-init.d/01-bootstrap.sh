@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-mkdir -p /mem0/storage/qdrant
+mkdir -p /mem-zero/storage/qdrant
 
-SAVED_ENV="/mem0/storage/.env.saved"
+SAVED_ENV="/mem-zero/storage/.env.saved"
 
 env_vars=(
     QDRANT_HOST

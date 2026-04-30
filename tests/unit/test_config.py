@@ -45,7 +45,7 @@ class TestConfig:
         assert config.qdrant_port == 6333
         assert config.embedder_model == "nomic-embed-text"
         assert config.embedding_dimensions == 768
-        assert config.collection_prefix == "mem0"
+        assert config.collection_prefix == "mem-zero"
 
     def test_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("PORT", "9999")
@@ -70,8 +70,8 @@ class TestConfig:
         assert config.qdrant_api_key is None
 
     def test_collection_name(self) -> None:
-        config = Config(collection_prefix="mem0")
-        assert config.collection_name("my-project") == "mem0_my-project"
+        config = Config(collection_prefix="mem-zero")
+        assert config.collection_name("my-project") == "mem-zero_my-project"
 
     def test_collection_name_validates_slug(self) -> None:
         config = Config()
