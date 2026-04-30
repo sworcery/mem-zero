@@ -26,12 +26,6 @@ set_engine(engine)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    try:
-        count = await engine.migrate_collection_prefix("mem0")
-        if count:
-            logger.info("Migrated %d collection(s) from mem0_ to mem-zero_", count)
-    except Exception:
-        logger.exception("Collection prefix migration failed — continuing with existing data")
     yield
     await engine.close()
 
@@ -39,7 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="mem-zero",
     description="Project-isolated MCP memory server",
-    version="0.1.35.1",
+    version="0.1.35.2",
     lifespan=lifespan,
 )
 
@@ -57,6 +51,8 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if any(path.startswith(p) for p in _ALWAYS_OPEN):
             return await call_next(request)
         if any(path.startswith(p) for p in _API_PREFIXES):
+            if getattr(request.state, "dashboard_authenticated", False):
+                return await call_next(request)
             auth = request.headers.get("authorization", "")
             if auth.startswith("Bearer "):
                 token = auth[7:]
@@ -75,25 +71,35 @@ class DashboardAuthMiddleware(BaseHTTPMiddleware):
         self._username = username
         self._password = password
 
-    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
-        path = request.url.path
-        if any(path.startswith(p) for p in _ALWAYS_OPEN + _API_PREFIXES):
-            return await call_next(request)
-
+    def _valid_basic_auth(self, request: Request) -> bool:
         import base64
 
         auth = request.headers.get("authorization", "")
-        if auth.startswith("Basic "):
-            try:
-                decoded = base64.b64decode(auth[6:]).decode()
-                user, passwd = decoded.split(":", 1)
-                if (
-                    secrets.compare_digest(user, self._username)
-                    and secrets.compare_digest(passwd, self._password)
-                ):
-                    return await call_next(request)
-            except Exception:
-                pass
+        if not auth.startswith("Basic "):
+            return False
+        try:
+            decoded = base64.b64decode(auth[6:]).decode()
+            user, passwd = decoded.split(":", 1)
+            return (
+                secrets.compare_digest(user, self._username)
+                and secrets.compare_digest(passwd, self._password)
+            )
+        except Exception:
+            return False
+
+    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
+        path = request.url.path
+        if any(path.startswith(p) for p in _ALWAYS_OPEN):
+            return await call_next(request)
+
+        if any(path.startswith(p) for p in _API_PREFIXES):
+            if self._valid_basic_auth(request):
+                request.state.dashboard_authenticated = True
+                return await call_next(request)
+            return await call_next(request)
+
+        if self._valid_basic_auth(request):
+            return await call_next(request)
 
         return Response(
             status_code=401,
