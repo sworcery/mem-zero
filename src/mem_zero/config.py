@@ -7,6 +7,12 @@ from dataclasses import dataclass
 SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 
 
+def _ensure_scheme(url: str, default_scheme: str = "http") -> str:
+    if url and "://" not in url:
+        return f"{default_scheme}://{url}"
+    return url
+
+
 def validate_slug(slug: str) -> str:
     if not SLUG_PATTERN.match(slug):
         raise ValueError(
@@ -89,7 +95,7 @@ class Config:
             qdrant_url=_opt("QDRANT_URL"),
             qdrant_api_key=_opt("QDRANT_API_KEY"),
             llm_backend=backend,
-            ollama_base_url=_str("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+            ollama_base_url=_ensure_scheme(_str("OLLAMA_BASE_URL", "http://127.0.0.1:11434")),
             llm_model=_str("LLM_MODEL", "qwen2.5:7b"),
             embedder_model=_str("EMBEDDER_MODEL", "nomic-embed-text"),
             embedding_dimensions=_int("EMBEDDER_DIMENSIONS", 768),
@@ -102,7 +108,7 @@ class Config:
             ),
             bundled_threads=_int("BUNDLED_THREADS", 4),
             openai_api_key=_opt("OPENAI_API_KEY"),
-            openai_base_url=_str("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            openai_base_url=_ensure_scheme(_str("OPENAI_BASE_URL", "https://api.openai.com/v1"), "https"),
             openai_model=_str("OPENAI_MODEL", "gpt-4o-mini"),
             openai_embed_model=_str("OPENAI_EMBED_MODEL", "text-embedding-3-small"),
             collection_prefix=_str("COLLECTION_PREFIX", "mem-zero"),

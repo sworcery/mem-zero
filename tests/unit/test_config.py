@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mem_zero.config import Config, validate_slug
+from mem_zero.config import Config, _ensure_scheme, validate_slug
 
 
 class TestValidateSlug:
@@ -77,3 +77,32 @@ class TestConfig:
         config = Config()
         with pytest.raises(ValueError):
             config.collection_name("invalid.slug!")
+
+    def test_from_env_prepends_http_to_ollama_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OLLAMA_BASE_URL", "192.168.1.10:11434")
+        monkeypatch.setenv("LLM_BACKEND", "ollama")
+        config = Config.from_env()
+        assert config.ollama_base_url == "http://192.168.1.10:11434"
+
+    def test_from_env_preserves_explicit_scheme(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.example.com")
+        monkeypatch.setenv("LLM_BACKEND", "ollama")
+        config = Config.from_env()
+        assert config.ollama_base_url == "https://ollama.example.com"
+
+
+class TestEnsureScheme:
+    def test_adds_http_when_missing(self) -> None:
+        assert _ensure_scheme("192.168.1.10:11434") == "http://192.168.1.10:11434"
+
+    def test_preserves_existing_http(self) -> None:
+        assert _ensure_scheme("http://localhost:11434") == "http://localhost:11434"
+
+    def test_preserves_existing_https(self) -> None:
+        assert _ensure_scheme("https://api.example.com") == "https://api.example.com"
+
+    def test_custom_default_scheme(self) -> None:
+        assert _ensure_scheme("api.openai.com/v1", "https") == "https://api.openai.com/v1"
+
+    def test_empty_string_unchanged(self) -> None:
+        assert _ensure_scheme("") == ""
