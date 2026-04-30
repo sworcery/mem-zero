@@ -247,6 +247,23 @@ async def cleanup_memories(slug: str = Path(...)) -> dict[str, int]:
     return result
 
 
+@app.post("/api/v1/projects/{slug}/consolidate")
+async def consolidate_memories(
+    slug: str = Path(...),
+    threshold: float = Query(default=0.75, ge=0.5, le=1.0),
+    dry_run: bool = Query(default=False),
+) -> dict[str, object]:
+    slug = _validated_slug(slug)
+    try:
+        result = await engine.consolidate(
+            slug, similarity_threshold=threshold, dry_run=dry_run
+        )
+    except Exception as exc:
+        logger.exception("Consolidation failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return result
+
+
 _static_dir = FilePath(__file__).parent / "static"
 if _static_dir.is_dir():
     app.mount("/", StaticFiles(directory=_static_dir, html=True), name="static")

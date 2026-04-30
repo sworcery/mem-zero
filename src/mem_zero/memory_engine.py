@@ -43,6 +43,28 @@ Example output: ["User is a data scientist", "User works at Acme Corp", \
 "User prefers Python over R", "User uses PostgreSQL for data pipelines"]
 """
 
+CONSOLIDATE_PROMPT = """\
+You are a memory consolidation system. You will receive a group of related \
+memory fragments that overlap in topic. Merge them into one or more clear, \
+self-contained statements that preserve all distinct, useful information.
+
+Rules:
+- Each output statement must stand alone — a reader with no prior context should \
+understand it fully.
+- Discard fragments that are meaningless on their own (e.g. "Root cause", \
+"Solution", single words like "Qdrant").
+- Discard implementation details that belong in code or git history (e.g. \
+"Updated line 42", "All tests pass", "Changed variable name").
+- Combine overlapping fragments into a single coherent statement when they \
+describe the same thing.
+- If the group contains genuinely distinct facts, output multiple statements.
+- It is fine to return fewer statements than inputs — that is the point.
+- Respond with ONLY a JSON array of strings, no other text.
+
+MEMORY FRAGMENTS:
+{fragments}
+"""
+
 DEDUP_PROMPT = """\
 You are a memory deduplication system. Compare a NEW fact against EXISTING \
 memories and decide what to do.
@@ -456,6 +478,147 @@ class MemoryEngine:
             "Cleanup %s: %d cleaned, %d split, %d skipped", collection, cleaned, split, skipped
         )
         return {"cleaned": cleaned, "split_into_multiple": split, "skipped": skipped}
+
+    @staticmethod
+    def _cosine_similarity(a: list[float], b: list[float]) -> float:
+        dot = sum(x * y for x, y in zip(a, b, strict=True))
+        norm_a = sum(x * x for x in a) ** 0.5
+        norm_b = sum(x * x for x in b) ** 0.5
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return dot / (norm_a * norm_b)
+
+    def _cluster_points(
+        self, points: list, threshold: float
+    ) -> list[list[int]]:
+        n = len(points)
+        vectors = [pt.vector for pt in points]
+        used: set[int] = set()
+        clusters: list[list[int]] = []
+
+        for i in range(n):
+            if i in used:
+                continue
+            cluster = [i]
+            used.add(i)
+            for j in range(i + 1, n):
+                if j in used:
+                    continue
+                if self._cosine_similarity(vectors[i], vectors[j]) >= threshold:
+                    cluster.append(j)
+                    used.add(j)
+            clusters.append(cluster)
+
+        return clusters
+
+    async def consolidate(
+        self,
+        project_slug: str,
+        similarity_threshold: float = 0.75,
+        dry_run: bool = False,
+    ) -> dict[str, object]:
+        if self._backend.is_degraded:
+            raise LLMError("Cannot consolidate in degraded mode — LLM is required")
+
+        collection = await self._ensure_collection(project_slug)
+
+        all_points = []
+        offset = None
+        while True:
+            points, next_offset = await self._qdrant.scroll(
+                collection_name=collection,
+                limit=50,
+                offset=offset,
+                with_payload=True,
+                with_vectors=True,
+            )
+            if not points:
+                break
+            all_points.extend(points)
+            if next_offset is None:
+                break
+            offset = next_offset
+
+        if len(all_points) < 2:
+            return {"clusters": 0, "memories_removed": 0, "memories_created": 0}
+
+        clusters = self._cluster_points(all_points, similarity_threshold)
+        merge_clusters = [c for c in clusters if len(c) >= 2]
+
+        if dry_run:
+            previews = []
+            for cluster in merge_clusters:
+                texts = [all_points[i].payload.get("text", "") for i in cluster]
+                previews.append({"count": len(cluster), "texts": texts})
+            return {"clusters": len(merge_clusters), "previews": previews}
+
+        total_removed = 0
+        total_created = 0
+        for cluster in merge_clusters:
+            pts = [all_points[i] for i in cluster]
+            texts = [pt.payload.get("text", "") for pt in pts]
+
+            user_ids = [pt.payload.get("user_id", "default") for pt in pts]
+            user_id = max(set(user_ids), key=user_ids.count)
+
+            fragments = "\n".join(f"- {t}" for t in texts)
+            prompt = CONSOLIDATE_PROMPT.format(fragments=fragments)
+
+            try:
+                raw = await self._backend.generate(prompt, "")
+                consolidated = json.loads(raw)
+                if isinstance(consolidated, str):
+                    consolidated = [consolidated]
+                if not isinstance(consolidated, list):
+                    continue
+                consolidated = [str(f) for f in consolidated if f and str(f).strip()]
+            except (json.JSONDecodeError, Exception):
+                logger.warning("Consolidation LLM call failed for cluster, skipping")
+                continue
+
+            if not consolidated:
+                continue
+
+            old_ids = [str(pt.id) for pt in pts]
+            await self._qdrant.delete(
+                collection_name=collection, points_selector=old_ids
+            )
+            total_removed += len(old_ids)
+
+            now = time.time()
+            earliest = min(
+                pt.payload.get("created_at", now) for pt in pts
+            )
+            for fact in consolidated:
+                vectors = await self._backend.embed([fact])
+                point_id = str(uuid.uuid4())
+                await self._qdrant.upsert(
+                    collection_name=collection,
+                    points=[
+                        PointStruct(
+                            id=point_id,
+                            vector=vectors[0],
+                            payload={
+                                "text": fact,
+                                "user_id": user_id,
+                                "project": project_slug,
+                                "created_at": earliest,
+                                "updated_at": now,
+                            },
+                        )
+                    ],
+                )
+                total_created += 1
+
+        logger.info(
+            "Consolidated %s: %d clusters, %d removed, %d created",
+            collection, len(merge_clusters), total_removed, total_created,
+        )
+        return {
+            "clusters": len(merge_clusters),
+            "memories_removed": total_removed,
+            "memories_created": total_created,
+        }
 
     async def delete_project(self, project_slug: str) -> bool:
         collection = self._config.collection_name(project_slug)

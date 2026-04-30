@@ -755,7 +755,8 @@
       <div class="action-bar">
         <span id="memory-count-label" style="font-size:13px; color:var(--text-faint);"></span>
         <div class="spacer"></div>
-        <button class="btn btn-danger btn-sm" id="delete-all-btn">Delete All</button>
+        <button class="btn btn-primary btn-sm" id="consolidate-btn" title="Merge similar memory fragments into clean summaries">Consolidate</button>
+        <button class="btn btn-danger btn-sm" id="delete-all-btn" style="margin-left:8px;">Delete All</button>
         <button class="btn btn-danger btn-sm" id="delete-project-btn" style="margin-left:8px; opacity:0.75;" title="Delete the entire project and all its memories">Delete Project</button>
       </div>
 
@@ -826,6 +827,7 @@
   const addBtn        = $('add-btn');
   const deleteAllBtn     = $('delete-all-btn');
   const deleteProjectBtn = $('delete-project-btn');
+  const consolidateBtn   = $('consolidate-btn');
   const refreshBtn    = $('refresh-btn');
   const healthDot     = $('health-dot');
   const statusText    = $('status-text');
@@ -932,6 +934,8 @@
     deleteOne:  (slug, id) => api('DELETE', `/api/v1/projects/${slug}/memories/${id}`),
     deleteAll:        (slug) => api('DELETE', `/api/v1/projects/${slug}/memories`),
     deleteProject:    (slug) => api('DELETE', `/api/v1/projects/${slug}`),
+    consolidate:      (slug, dryRun=false, threshold=0.75) =>
+      api('POST', `/api/v1/projects/${slug}/consolidate?dry_run=${dryRun}&threshold=${threshold}`),
     health:     () => api('GET', '/health'),
     config:     () => api('GET', '/debug/config'),
   };
@@ -1138,6 +1142,34 @@
     }
   }
 
+  async function consolidateMemories() {
+    if (!state.activeSlug) return;
+    consolidateBtn.disabled = true;
+    consolidateBtn.textContent = 'Previewing…';
+    try {
+      const preview = await API.consolidate(state.activeSlug, true);
+      if (!preview.clusters) {
+        toast('No similar memories to consolidate', 'info');
+        return;
+      }
+      const ok = await confirm(
+        'Consolidate memories?',
+        `Found ${preview.clusters} cluster${preview.clusters !== 1 ? 's' : ''} of similar memories. This will merge related fragments into clean summaries. This cannot be undone.`
+      );
+      if (!ok) return;
+      consolidateBtn.textContent = 'Consolidating…';
+      const res = await API.consolidate(state.activeSlug, false);
+      toast(`Consolidated: ${res.memories_removed} merged into ${res.memories_created}`, 'success');
+      await loadMemories();
+      await loadProjects();
+    } catch(e) {
+      toast('Consolidation failed: ' + e.message, 'error');
+    } finally {
+      consolidateBtn.disabled = false;
+      consolidateBtn.textContent = 'Consolidate';
+    }
+  }
+
   async function deleteProject() {
     if (!state.activeSlug) return;
     const slug = state.activeSlug;
@@ -1238,6 +1270,9 @@
   addText.addEventListener('keydown', e => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addMemory();
   });
+
+  // Consolidate
+  consolidateBtn.addEventListener('click', consolidateMemories);
 
   // Delete all
   deleteAllBtn.addEventListener('click', deleteAll);

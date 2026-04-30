@@ -162,17 +162,17 @@ The dashboard has its own basic auth (`DASHBOARD_USER`/`DASHBOARD_PASS`) since b
 
 ## Best practices
 
-mem-zero works best when you treat it as your primary context store, not a backup. AI coding assistants lose everything when conversations compact or end — mem-zero doesn't.
+mem-zero supplements conversations — it's not a transcript. Store things a future session would need that aren't obvious from reading the code or git history.
 
-**Store as you go, not at the end.** After every meaningful action — bug fix, feature added, decision made, error hit — store it immediately. If you wait until the end of a session, you risk losing everything to context compaction before you get there.
+**Search first.** At the start of every conversation, search mem-zero for prior context. A well-maintained memory store means you never start from scratch.
 
-**Be specific.** Include file paths, function names, error messages, config values. "Fixed a bug in the server" is useless. "Fixed httpx.ConnectError in memory_engine.py — s6-overlay was discarding env vars, added S6_KEEP_ENV=1 to Dockerfile" is what you want.
+**Store decisions, not play-by-play.** "Chose skopeo over docker push because the local registry uses a self-signed cert" is useful. "Updated line 42 in server.py" is not — that's what `git log` is for.
 
-**Search first.** At the start of every conversation, search mem-zero for prior context on what you're about to work on. A well-maintained memory store means you never start from scratch.
+**Store dead ends.** If you spend 30 minutes debugging something that turned out to be a red herring, store that. It prevents future sessions from going down the same path.
 
-**Store decisions, not just actions.** When you choose approach A over B, store both — what you picked and what you rejected and why. Future sessions will face similar choices.
+**Quality over quantity.** Each memory should be a complete, self-contained statement. One memory per logical change or decision — not one per file touched. Fragments like "Root cause" or "Solution" without context are useless noise.
 
-**Store dead ends.** If you spend 30 minutes debugging something that turned out to be a red herring, store that too. It prevents future sessions from going down the same path.
+**Let the code speak.** Don't store function signatures, file structure, what a method does, or test results. The codebase is the authoritative source for those. Store the *why*, not the *what*.
 
 For Claude Code, add instructions to your `CLAUDE.md` telling the assistant to use mem-zero proactively. Without explicit instructions, most assistants won't store memories on their own.
 
@@ -187,6 +187,7 @@ POST   /api/v1/projects/{slug}/search            — search {"query": "...", "to
 DELETE /api/v1/projects/{slug}/memories/{id}      — delete one
 DELETE /api/v1/projects/{slug}/memories           — delete all memories
 DELETE /api/v1/projects/{slug}                    — delete entire project
+POST   /api/v1/projects/{slug}/consolidate        — merge similar fragments into clean summaries
 ```
 
 ## Configuration
