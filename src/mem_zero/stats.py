@@ -86,6 +86,8 @@ class DiagnosticStats:
             self._counters = data.get("counters", {})
             self._latency_totals = data.get("latency_totals", {})
             self._latency_counts = data.get("latency_counts", {})
+            for key, samples in data.get("latency_samples", {}).items():
+                self._latencies[key] = deque(samples, maxlen=_MAX_LATENCY_SAMPLES)
             self._search_score_sum = data.get("search_score_sum", 0.0)
             self._search_score_count = data.get("search_score_count", 0)
             self._search_score_buckets = {
@@ -108,6 +110,7 @@ class DiagnosticStats:
             "counters": self._counters,
             "latency_totals": self._latency_totals,
             "latency_counts": self._latency_counts,
+            "latency_samples": {k: list(v) for k, v in self._latencies.items()},
             "search_score_sum": self._search_score_sum,
             "search_score_count": self._search_score_count,
             "search_score_buckets": self._search_score_buckets,
