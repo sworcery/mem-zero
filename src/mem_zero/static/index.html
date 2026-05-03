@@ -550,20 +550,6 @@
     .empty-icon { font-size: 42px; opacity: 0.4; }
     .empty-text { font-size: 14px; }
 
-    #no-project {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100%;
-      gap: 12px;
-      color: var(--text-faint);
-      text-align: center;
-      padding: 24px;
-    }
-
-    .no-project-icon { font-size: 56px; opacity: 0.25; }
-
     /* ── Toast ── */
     #toast-container {
       position: fixed;
@@ -677,6 +663,257 @@
 
       #topbar .logo { font-size: 17px; }
     }
+
+    /* ── Dashboard ── */
+    #dashboard-view {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .dash-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+
+    .dash-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-faint);
+      margin-bottom: 12px;
+    }
+
+    .dash-section-title .dash-hint {
+      font-weight: 400;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    .dash-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+    }
+
+    .dash-cards-vert {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .dash-card {
+      background: var(--bg-mid);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px 14px;
+    }
+
+    .dash-card-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-faint);
+      margin-bottom: 4px;
+    }
+
+    .dash-card-value {
+      font-size: 14px;
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .dash-big { font-size: 22px; font-weight: 700; }
+
+    .dash-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 800px) {
+      .dash-row { grid-template-columns: 1fr; }
+    }
+
+    .dash-flex { display: flex; flex-direction: column; }
+
+    .dash-stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .dash-stat-row:last-child { border-bottom: none; }
+
+    .dash-stat-label {
+      font-size: 13px;
+      color: var(--text-dim);
+    }
+
+    .dash-stat-value {
+      font-size: 13px;
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .dash-perf-empty {
+      font-size: 13px;
+      color: var(--text-faint);
+      padding: 8px 0;
+    }
+
+    .dash-perf-empty code {
+      background: var(--bg-mid);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 12px;
+    }
+
+    /* Latency bars */
+    .dash-perf-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .dash-perf-row:last-child { margin-bottom: 0; }
+
+    .dash-perf-name {
+      font-size: 12px;
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      color: var(--text-dim);
+      width: 80px;
+      flex-shrink: 0;
+      text-align: right;
+    }
+
+    .dash-perf-bar-wrap {
+      flex: 1;
+      height: 18px;
+      background: var(--bg);
+      border-radius: 3px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .dash-perf-bar {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.4s ease;
+      min-width: 2px;
+    }
+
+    .dash-perf-bar.fast { background: var(--score-ok); }
+    .dash-perf-bar.mid  { background: var(--score-mid); }
+    .dash-perf-bar.slow { background: var(--score-low); }
+
+    .dash-perf-val {
+      font-size: 12px;
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      color: var(--text);
+      width: 70px;
+      flex-shrink: 0;
+      text-align: right;
+    }
+
+    .dash-perf-extra {
+      font-size: 10px;
+      color: var(--text-faint);
+      width: 100px;
+      flex-shrink: 0;
+    }
+
+    /* Score distribution bars */
+    .dash-dist-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .dash-dist-row:last-child { margin-bottom: 0; }
+
+    .dash-dist-label {
+      font-size: 11px;
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      color: var(--text-faint);
+      width: 50px;
+      flex-shrink: 0;
+      text-align: right;
+    }
+
+    .dash-dist-bar-wrap {
+      flex: 1;
+      height: 14px;
+      background: var(--bg);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .dash-dist-bar {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.4s ease;
+      min-width: 1px;
+    }
+
+    .dash-dist-count {
+      font-size: 11px;
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      color: var(--text-dim);
+      width: 40px;
+      flex-shrink: 0;
+      text-align: right;
+    }
+
+    /* Error list */
+    .dash-error-item {
+      font-size: 12px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+    }
+
+    .dash-error-item:last-child { border-bottom: none; }
+
+    .dash-error-time {
+      color: var(--text-faint);
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .dash-error-op {
+      color: var(--danger);
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .dash-error-msg {
+      color: var(--text-dim);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .dash-val-ok { color: var(--score-ok); }
+    .dash-val-warn { color: var(--score-mid); }
+    .dash-val-bad { color: var(--danger); }
   </style>
 </head>
 <body>
@@ -685,7 +922,7 @@
 
   <!-- Top bar -->
   <header id="topbar">
-    <div class="logo">
+    <div class="logo" id="logo-home" style="cursor:pointer" title="Dashboard">
       mem<span>-</span>zero
     </div>
 
@@ -728,10 +965,103 @@
 
   <!-- Main -->
   <main id="main">
-    <div id="no-project">
-      <div class="no-project-icon">&#x1F9E0;</div>
-      <div style="font-size:18px; font-weight:600; color:var(--text-dim)">Select a project</div>
-      <div style="font-size:14px">Choose a project from the sidebar to view and manage memories.</div>
+    <div id="dashboard-view">
+      <div class="dash-section">
+        <div class="dash-section-title">System</div>
+        <div class="dash-cards">
+          <div class="dash-card">
+            <div class="dash-card-label">Status</div>
+            <div class="dash-card-value" id="dash-health">—</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-label">Uptime</div>
+            <div class="dash-card-value" id="dash-uptime">—</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-label">Backend</div>
+            <div class="dash-card-value" id="dash-backend">—</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-label">Model</div>
+            <div class="dash-card-value" id="dash-model">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-section">
+        <div class="dash-section-title">Usage</div>
+        <div class="dash-cards">
+          <div class="dash-card">
+            <div class="dash-card-label">Projects</div>
+            <div class="dash-card-value dash-big" id="dash-projects">—</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-label">Memories</div>
+            <div class="dash-card-value dash-big" id="dash-memories">—</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-label">Operations</div>
+            <div class="dash-card-value dash-big" id="dash-ops">—</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-label">Ops / Day</div>
+            <div class="dash-card-value dash-big" id="dash-ops-day">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-row">
+        <div class="dash-section dash-flex">
+          <div class="dash-section-title">Performance <span class="dash-hint">(avg ms)</span></div>
+          <div class="dash-perf" id="dash-perf">
+            <div class="dash-perf-empty">No latency data</div>
+          </div>
+        </div>
+        <div class="dash-section dash-flex">
+          <div class="dash-section-title">Accuracy</div>
+          <div class="dash-cards dash-cards-vert">
+            <div class="dash-stat-row">
+              <span class="dash-stat-label">Dedup effectiveness</span>
+              <span class="dash-stat-value" id="dash-dedup">—</span>
+            </div>
+            <div class="dash-stat-row">
+              <span class="dash-stat-label">Extraction failure rate</span>
+              <span class="dash-stat-value" id="dash-extract-fail">—</span>
+            </div>
+            <div class="dash-stat-row">
+              <span class="dash-stat-label">Avg search score</span>
+              <span class="dash-stat-value" id="dash-avg-score">—</span>
+            </div>
+            <div class="dash-stat-row">
+              <span class="dash-stat-label">Facts stored</span>
+              <span class="dash-stat-value" id="dash-facts">—</span>
+            </div>
+            <div class="dash-stat-row">
+              <span class="dash-stat-label">Backend fallbacks</span>
+              <span class="dash-stat-value" id="dash-fallbacks">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-row">
+        <div class="dash-section dash-flex">
+          <div class="dash-section-title">Score Distribution</div>
+          <div class="dash-score-dist" id="dash-score-dist">
+            <div class="dash-perf-empty">No search data</div>
+          </div>
+        </div>
+        <div class="dash-section dash-flex">
+          <div class="dash-section-title">Recent Errors</div>
+          <div class="dash-errors" id="dash-errors">
+            <div class="dash-perf-empty">No errors</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="dash-disabled-notice" style="display:none">
+        <div class="dash-perf-empty">Enable diagnostics for performance and accuracy metrics: <code>DIAGNOSTICS_ENABLED=true</code></div>
+      </div>
     </div>
 
     <div id="project-view" style="display:none; flex:1; flex-direction:column; overflow:hidden;">
@@ -818,7 +1148,7 @@
   const $ = id => document.getElementById(id);
   const projectList   = $('project-list');
   const memoryList    = $('memory-list');
-  const noProject     = $('no-project');
+  const dashboardView = $('dashboard-view');
   const projectView   = $('project-view');
   const projectTitle  = $('project-title');
   const mcpUrl        = $('mcp-url');
@@ -946,6 +1276,7 @@
       api('POST', `/api/v1/projects/${slug}/consolidate?dry_run=${dryRun}&threshold=${threshold}`),
     health:     () => api('GET', '/health'),
     config:     () => api('GET', '/debug/config'),
+    diagnostics:() => api('GET', '/api/v1/diagnostics'),
   };
 
   // ── Render helpers ─────────────────────────────────────────────────────────
@@ -1061,7 +1392,7 @@
     state.activeSlug = slug;
     state.memories   = [];
     state.searchMode = false;
-    noProject.style.display = 'none';
+    dashboardView.style.display = 'none';
     projectView.style.display = 'flex';
     projectTitle.textContent = slug;
     updateMcpUrl();
@@ -1196,8 +1527,9 @@
       state.memories   = [];
       state.searchMode = false;
       projectView.style.display = 'none';
-      noProject.style.display   = '';
+      dashboardView.style.display = '';
       renderProjectList();
+      loadDashboard();
     } catch(e) {
       toast('Delete project failed: ' + e.message, 'error');
     } finally {
@@ -1228,7 +1560,145 @@
     } catch(_) {}
   }
 
+  // ── Dashboard ─────────────────────────────────────────────────────────────
+  function fmtUptime(s) {
+    if (!s) return '—';
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+  }
+
+  function fmtNum(n) {
+    if (n === null || n === undefined) return '—';
+    return Number(n).toLocaleString();
+  }
+
+  function showDashboard() {
+    state.activeSlug = null;
+    state.memories = [];
+    state.searchMode = false;
+    projectView.style.display = 'none';
+    dashboardView.style.display = '';
+    renderProjectList();
+    loadDashboard();
+  }
+
+  async function loadDashboard() {
+    const totalMem = state.projects.reduce((s, p) => s + p.memory_count, 0);
+    $('dash-projects').textContent = fmtNum(state.projects.length);
+    $('dash-memories').textContent = fmtNum(totalMem);
+    $('dash-health').textContent = state.health === 'ok' ? 'Healthy' : 'Unreachable';
+    $('dash-health').className = 'dash-card-value ' + (state.health === 'ok' ? 'dash-val-ok' : 'dash-val-bad');
+
+    try {
+      const cfg = await API.config();
+      $('dash-backend').textContent = cfg.llm_backend || '—';
+      $('dash-model').textContent = cfg.llm_model || cfg.openai_model || cfg.bundled_model_path?.split('/').pop()?.replace('.gguf','') || '—';
+    } catch(_) {}
+
+    try {
+      const d = await API.diagnostics();
+      $('dash-disabled-notice').style.display = 'none';
+      $('dash-uptime').textContent = fmtUptime(d.uptime_seconds);
+      $('dash-ops').textContent = fmtNum(d.usage?.total_operations);
+      $('dash-ops-day').textContent = fmtNum(d.usage?.operations_per_day);
+      $('dash-facts').textContent = fmtNum(d.usage?.total_facts_stored);
+
+      const acc = d.accuracy || {};
+      $('dash-dedup').textContent = acc.dedup?.effectiveness || '—';
+      $('dash-extract-fail').textContent = acc.extraction?.failure_rate || '—';
+      const avgScore = acc.search?.avg_score;
+      const scoreEl = $('dash-avg-score');
+      scoreEl.textContent = avgScore !== null && avgScore !== undefined ? avgScore.toFixed(3) : '—';
+      if (avgScore !== null && avgScore !== undefined) {
+        scoreEl.className = 'dash-stat-value ' + (avgScore >= 0.6 ? 'dash-val-ok' : avgScore >= 0.4 ? 'dash-val-warn' : 'dash-val-bad');
+      }
+
+      const rel = d.reliability || {};
+      const fbEl = $('dash-fallbacks');
+      const fb = rel.backend_fallback_activations || 0;
+      fbEl.textContent = fmtNum(fb);
+      if (fb > 0) fbEl.className = 'dash-stat-value dash-val-warn';
+
+      renderPerfBars(d.performance || {});
+      renderScoreDist(acc.search?.score_distribution || {});
+      renderErrors(rel.recent_errors || []);
+    } catch(e) {
+      $('dash-disabled-notice').style.display = '';
+      $('dash-uptime').textContent = '—';
+      $('dash-ops').textContent = '—';
+      $('dash-ops-day').textContent = '—';
+    }
+  }
+
+  function renderPerfBars(perf) {
+    const container = $('dash-perf');
+    const keys = Object.keys(perf);
+    if (!keys.length) {
+      container.innerHTML = '<div class="dash-perf-empty">No latency data</div>';
+      return;
+    }
+    const maxAvg = Math.max(...keys.map(k => perf[k].avg_ms || 0), 1);
+    container.innerHTML = keys.map(k => {
+      const d = perf[k];
+      const avg = d.avg_ms || 0;
+      const pct = Math.min((avg / maxAvg) * 100, 100);
+      const cls = avg < 100 ? 'fast' : avg < 500 ? 'mid' : 'slow';
+      const p95 = d.p95 !== null ? `p95: ${d.p95}ms` : '';
+      return `<div class="dash-perf-row">
+        <span class="dash-perf-name">${esc(k)}</span>
+        <div class="dash-perf-bar-wrap"><div class="dash-perf-bar ${cls}" style="width:${pct}%"></div></div>
+        <span class="dash-perf-val">${avg.toFixed(0)} ms</span>
+        <span class="dash-perf-extra">${p95}</span>
+      </div>`;
+    }).join('');
+  }
+
+  function renderScoreDist(dist) {
+    const container = $('dash-score-dist');
+    const buckets = ['0.0-0.2','0.2-0.4','0.4-0.6','0.6-0.8','0.8-1.0'];
+    const counts = buckets.map(b => dist[b] || 0);
+    const maxCount = Math.max(...counts, 1);
+    if (counts.every(c => c === 0)) {
+      container.innerHTML = '<div class="dash-perf-empty">No search data</div>';
+      return;
+    }
+    const colors = ['var(--score-low)','var(--score-mid)','var(--score-mid)','var(--score-ok)','var(--score-ok)'];
+    container.innerHTML = buckets.map((b, i) => {
+      const pct = (counts[i] / maxCount) * 100;
+      return `<div class="dash-dist-row">
+        <span class="dash-dist-label">${b}</span>
+        <div class="dash-dist-bar-wrap"><div class="dash-dist-bar" style="width:${pct}%;background:${colors[i]}"></div></div>
+        <span class="dash-dist-count">${fmtNum(counts[i])}</span>
+      </div>`;
+    }).join('');
+  }
+
+  function renderErrors(errors) {
+    const container = $('dash-errors');
+    if (!errors.length) {
+      container.innerHTML = '<div class="dash-perf-empty">No errors</div>';
+      return;
+    }
+    container.innerHTML = errors.slice(-10).reverse().map(e => {
+      const t = new Date(e.timestamp * 1000);
+      const time = t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      const date = t.toLocaleDateString([], {month:'short',day:'numeric'});
+      return `<div class="dash-error-item">
+        <span class="dash-error-time">${date} ${time}</span>
+        <span class="dash-error-op">${esc(e.operation)}</span>
+        <span class="dash-error-msg" title="${esc(e.error)}">${esc(e.error)}</span>
+      </div>`;
+    }).join('');
+  }
+
   // ── Event wiring ───────────────────────────────────────────────────────────
+
+  // Logo → dashboard home
+  $('logo-home').addEventListener('click', showDashboard);
 
   // Project selection (delegated)
   projectList.addEventListener('click', e => {
@@ -1321,13 +1791,8 @@
   // ── Boot ──────────────────────────────────────────────────────────────────
   async function init() {
     await Promise.all([checkHealth(), loadConfig(), loadProjects()]);
-    // Auto-select first project if only one exists
-    if (state.projects.length === 1) {
-      selectProject(state.projects[0].slug);
-    }
-    // Refresh health every 30s
+    loadDashboard();
     setInterval(checkHealth, 30_000);
-    // Refresh project list every 60s
     setInterval(loadProjects, 60_000);
   }
 
