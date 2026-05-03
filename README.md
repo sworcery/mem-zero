@@ -1,4 +1,6 @@
-# <img src="icon.png" alt="" width="96" height="96" style="vertical-align: middle;" /> mem-zero
+<p align="center"><img src="icon.png" alt="" width="96" /></p>
+
+# mem-zero
 
 Self-hosted memory server for AI coding assistants. Store, search, and manage persistent context across sessions — so your tools remember what happened last week without stuffing everything into the context window.
 
