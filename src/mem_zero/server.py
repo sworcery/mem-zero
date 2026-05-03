@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="mem-zero",
     description="Project-isolated MCP memory server",
-    version="0.1.35.12",
+    version="0.1.35.13",
     lifespan=lifespan,
 )
 
@@ -140,7 +140,7 @@ def _validated_slug(slug: str) -> str:
 async def health() -> dict[str, str]:
     try:
         await engine.health_check()
-        return {"status": "ok"}
+        return {"status": "ok", "version": app.version}
     except Exception as exc:
         logger.exception("Health check failed")
         raise HTTPException(status_code=503, detail="Service unavailable") from exc

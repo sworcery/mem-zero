@@ -697,6 +697,7 @@
     <div id="topbar-status">
       <span class="health-dot" id="health-dot"></span>
       <span id="status-text">connecting…</span>
+      <span id="version-text" style="color:var(--text-faint); font-family:'SF Mono','Fira Code','Consolas',monospace;"></span>
     </div>
   </header>
 
@@ -1201,10 +1202,11 @@
 
   async function checkHealth() {
     try {
-      await API.health();
+      const res = await API.health();
       state.health = 'ok';
       healthDot.className = 'health-dot ok';
       statusText.textContent = 'healthy';
+      if (res && res.version) $('version-text').textContent = 'v' + res.version;
     } catch(_) {
       state.health = 'err';
       healthDot.className = 'health-dot err';
