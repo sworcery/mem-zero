@@ -19,6 +19,7 @@ from qdrant_client.models import (
 from .backends import LLMBackend
 from .config import Config
 from .models import MemoryRecord, ProjectInfo
+from .stats import NULL_STATS, DiagnosticStats, _NullStats
 
 logger = logging.getLogger(__name__)
 
@@ -100,9 +101,15 @@ def validate_memory_id(value: str) -> str:
 
 
 class MemoryEngine:
-    def __init__(self, config: Config, backend: LLMBackend) -> None:
+    def __init__(
+        self,
+        config: Config,
+        backend: LLMBackend,
+        stats: DiagnosticStats | _NullStats | None = None,
+    ) -> None:
         self._config = config
         self._backend = backend
+        self._stats = stats or NULL_STATS
 
         if config.qdrant_url:
             self._qdrant = AsyncQdrantClient(
@@ -152,24 +159,61 @@ class MemoryEngine:
         await self._qdrant.get_collections()
         return True
 
-    async def _extract_facts(self, text: str) -> list[str]:
+    async def _timed_generate(self, system: str, user: str) -> str:
+        t0 = time.monotonic()
         try:
-            raw = await self._backend.generate(EXTRACT_PROMPT, text)
+            result = await self._backend.generate(system, user)
+            self._stats.record_latency(
+                "llm_generate", (time.monotonic() - t0) * 1000
+            )
+            self._stats.inc("llm_generate")
+            return result
+        except Exception:
+            self._stats.record_latency(
+                "llm_generate", (time.monotonic() - t0) * 1000
+            )
+            raise
+
+    async def _timed_embed(self, texts: list[str]) -> list[list[float]]:
+        t0 = time.monotonic()
+        try:
+            result = await self._backend.embed(texts)
+            self._stats.record_latency(
+                "embed", (time.monotonic() - t0) * 1000
+            )
+            self._stats.inc("embed")
+            self._stats.inc("embed.texts", len(texts))
+            return result
+        except Exception:
+            self._stats.record_latency(
+                "embed", (time.monotonic() - t0) * 1000
+            )
+            raise
+
+    async def _extract_facts(self, text: str) -> list[str]:
+        self._stats.inc("extract_facts")
+        try:
+            raw = await self._timed_generate(EXTRACT_PROMPT, text)
         except Exception as exc:
+            self._stats.record_error("extract_facts", str(exc))
             raise LLMError(f"Fact extraction failed: {exc}") from exc
         try:
             parsed = json.loads(raw)
             if isinstance(parsed, dict):
                 parsed = parsed["facts"] if "facts" in parsed else list(parsed.keys())
             if not isinstance(parsed, list):
+                self._stats.inc("extract_facts.produced", 1)
                 return [str(parsed)]
             facts = [str(f) for f in parsed if f]
             if not facts:
                 logger.warning("LLM returned empty fact list, storing raw text")
+                self._stats.inc("extract_facts.empty")
                 return [text]
+            self._stats.inc("extract_facts.produced", len(facts))
             return facts
         except json.JSONDecodeError:
             logger.warning("LLM returned non-JSON for extraction, storing raw text")
+            self._stats.inc("extract_facts.json_failures")
             return [text]
 
     async def _dedup_fact(
@@ -177,36 +221,45 @@ class MemoryEngine:
     ) -> tuple[str, str | None, str | None]:
         if self._backend.is_degraded:
             logger.debug("Skipping LLM dedup (degraded mode), adding directly")
+            self._stats.inc("dedup.degraded_skip")
             return "add", None, None
 
+        self._stats.inc("dedup")
         results = await self.search_in_collection(collection, fact, top_k=5, user_id=user_id)
         if not results:
+            self._stats.inc("dedup.add")
             return "add", None, None
 
         existing_lines = "\n".join(f"- [id={r.id}] {r.text}" for r in results)
         if not existing_lines:
+            self._stats.inc("dedup.add")
             return "add", None, None
 
         prompt = DEDUP_PROMPT.format(existing=existing_lines, new_fact=fact)
         try:
-            raw = await self._backend.generate(prompt, "")
-        except Exception:
+            raw = await self._timed_generate(prompt, "")
+        except Exception as exc:
+            self._stats.record_error("dedup", str(exc))
+            self._stats.inc("dedup.add")
             return "add", None, None
         try:
             result = json.loads(raw)
             action = result.get("action", "add")
+            self._stats.inc(f"dedup.{action}")
             if action == "update":
                 return "update", result.get("id"), result.get("text", fact)
             if action == "skip":
                 return "skip", None, None
             return "add", None, None
         except json.JSONDecodeError:
+            self._stats.inc("dedup.json_failures")
+            self._stats.inc("dedup.add")
             return "add", None, None
 
     async def search_in_collection(
         self, collection: str, query: str, top_k: int = 10, user_id: str | None = None
     ) -> list[MemoryRecord]:
-        vectors = await self._backend.embed([query])
+        vectors = await self._timed_embed([query])
         query_filter = None
         if user_id:
             query_filter = Filter(
@@ -221,7 +274,7 @@ class MemoryEngine:
             )
         ).points
 
-        return [
+        records = [
             MemoryRecord(
                 id=str(hit.id),
                 text=hit.payload.get("text", ""),
@@ -235,6 +288,10 @@ class MemoryEngine:
             )
             for hit in results
         ]
+        scores = [r.score for r in records if r.score is not None]
+        if scores:
+            self._stats.record_search_scores(scores)
+        return records
 
     async def add(
         self,
@@ -243,6 +300,9 @@ class MemoryEngine:
         texts: list[str],
         metadata: dict[str, object] | None = None,
     ) -> list[str]:
+        self._stats.inc("add_memory")
+        self._stats.inc_project(project_slug, "add_memory")
+        t0 = time.monotonic()
         collection = await self._ensure_collection(project_slug)
         now = time.time()
         ids: list[str] = []
@@ -270,7 +330,7 @@ class MemoryEngine:
 
             if action == "update" and update_id:
                 text_to_store = merged_text or fact
-                vectors = await self._backend.embed([text_to_store])
+                vectors = await self._timed_embed([text_to_store])
                 try:
                     validate_memory_id(update_id)
                     await self._qdrant.upsert(
@@ -296,7 +356,7 @@ class MemoryEngine:
                     action = "add"
 
             if action == "add":
-                vectors = await self._backend.embed([fact])
+                vectors = await self._timed_embed([fact])
                 point_id = str(uuid.uuid4())
                 ids.append(point_id)
                 await self._qdrant.upsert(
@@ -318,6 +378,9 @@ class MemoryEngine:
                 )
                 logger.info("Added memory %s to %s", point_id, collection)
 
+        self._stats.inc("facts_stored", len(ids))
+        self._stats.inc_project(project_slug, "facts_stored", len(ids))
+        self._stats.record_latency("add_memory", (time.monotonic() - t0) * 1000)
         return ids
 
     async def search(
@@ -326,8 +389,15 @@ class MemoryEngine:
         query: str,
         top_k: int = 10,
     ) -> list[MemoryRecord]:
+        self._stats.inc("search")
+        self._stats.inc_project(project_slug, "search")
+        t0 = time.monotonic()
         collection = await self._ensure_collection(project_slug)
-        return await self.search_in_collection(collection, query, top_k=top_k)
+        results = await self.search_in_collection(collection, query, top_k=top_k)
+        if not results:
+            self._stats.inc("search.zero_results")
+        self._stats.record_latency("search", (time.monotonic() - t0) * 1000)
+        return results
 
     async def list_all(
         self,
@@ -362,6 +432,8 @@ class MemoryEngine:
 
     async def delete(self, project_slug: str, memory_id: str) -> bool:
         validate_memory_id(memory_id)
+        self._stats.inc("delete")
+        self._stats.inc_project(project_slug, "delete")
         collection = await self._ensure_collection(project_slug)
         await self._qdrant.delete(
             collection_name=collection,
@@ -370,6 +442,8 @@ class MemoryEngine:
         return True
 
     async def delete_all(self, project_slug: str) -> int:
+        self._stats.inc("delete_all")
+        self._stats.inc_project(project_slug, "delete_all")
         collection = await self._ensure_collection(project_slug)
         info = await self._qdrant.get_collection(collection)
         count = info.points_count or 0
@@ -379,6 +453,8 @@ class MemoryEngine:
         return count
 
     async def reembed_all(self, project_slug: str) -> int:
+        self._stats.inc("reembed")
+        self._stats.inc_project(project_slug, "reembed")
         collection = await self._ensure_collection(project_slug)
         updated = 0
         offset = None
@@ -396,7 +472,7 @@ class MemoryEngine:
                 text = pt.payload.get("text", "")
                 if not text:
                     continue
-                vectors = await self._backend.embed([text])
+                vectors = await self._timed_embed([text])
                 await self._qdrant.upsert(
                     collection_name=collection,
                     points=[PointStruct(id=pt.id, vector=vectors[0], payload=pt.payload)],
@@ -423,6 +499,8 @@ class MemoryEngine:
             return None
 
     async def cleanup_text(self, project_slug: str) -> dict[str, int]:
+        self._stats.inc("cleanup")
+        self._stats.inc_project(project_slug, "cleanup")
         collection = await self._ensure_collection(project_slug)
         cleaned = 0
         split = 0
@@ -447,7 +525,7 @@ class MemoryEngine:
                 payload = dict(pt.payload)
                 if len(facts) == 1:
                     payload["text"] = facts[0]
-                    vectors = await self._backend.embed([facts[0]])
+                    vectors = await self._timed_embed([facts[0]])
                     await self._qdrant.upsert(
                         collection_name=collection,
                         points=[PointStruct(id=pt.id, vector=vectors[0], payload=payload)],
@@ -461,7 +539,7 @@ class MemoryEngine:
                     now = payload.get("updated_at", payload.get("created_at", 0))
                     for fact in facts:
                         new_payload = {**payload, "text": fact, "updated_at": now}
-                        vectors = await self._backend.embed([fact])
+                        vectors = await self._timed_embed([fact])
                         point_id = str(uuid.uuid4())
                         await self._qdrant.upsert(
                             collection_name=collection,
@@ -520,6 +598,8 @@ class MemoryEngine:
         if self._backend.is_degraded:
             raise LLMError("Cannot consolidate in degraded mode — LLM is required")
 
+        self._stats.inc("consolidate")
+        self._stats.inc_project(project_slug, "consolidate")
         collection = await self._ensure_collection(project_slug)
 
         all_points = []
@@ -565,14 +645,19 @@ class MemoryEngine:
             prompt = CONSOLIDATE_PROMPT.format(fragments=fragments)
 
             try:
-                raw = await self._backend.generate(prompt, "")
+                raw = await self._timed_generate(prompt, "")
                 consolidated = json.loads(raw)
                 if isinstance(consolidated, str):
                     consolidated = [consolidated]
                 if not isinstance(consolidated, list):
                     continue
                 consolidated = [str(f) for f in consolidated if f and str(f).strip()]
-            except (json.JSONDecodeError, Exception):
+            except json.JSONDecodeError:
+                self._stats.inc("consolidate.json_failures")
+                logger.warning("Consolidation LLM call failed for cluster, skipping")
+                continue
+            except Exception as exc:
+                self._stats.record_error("consolidate", str(exc))
                 logger.warning("Consolidation LLM call failed for cluster, skipping")
                 continue
 
@@ -590,7 +675,7 @@ class MemoryEngine:
                 pt.payload.get("created_at", now) for pt in pts
             )
             for fact in consolidated:
-                vectors = await self._backend.embed([fact])
+                vectors = await self._timed_embed([fact])
                 point_id = str(uuid.uuid4())
                 await self._qdrant.upsert(
                     collection_name=collection,

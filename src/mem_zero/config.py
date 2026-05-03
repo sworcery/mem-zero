@@ -59,6 +59,9 @@ class Config:
     dashboard_user: str | None = None
     dashboard_pass: str | None = None
 
+    stats_path: str = "/mem-zero/storage/diagnostics.json"
+    diagnostics_enabled: bool = True
+
     @staticmethod
     def from_env() -> Config:
         def _str(key: str, default: str) -> str:
@@ -117,6 +120,9 @@ class Config:
             api_key=_opt("API_KEY"),
             dashboard_user=_opt("DASHBOARD_USER"),
             dashboard_pass=_opt("DASHBOARD_PASS"),
+            stats_path=_str("STATS_PATH", "/mem-zero/storage/diagnostics.json"),
+            diagnostics_enabled=os.environ.get("DIAGNOSTICS_ENABLED", "true").lower()
+            in ("1", "true", "yes"),
         )
 
     def collection_name(self, project_slug: str) -> str:

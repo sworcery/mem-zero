@@ -10,6 +10,7 @@ import httpx
 
 if TYPE_CHECKING:
     from .config import Config
+    from .stats import DiagnosticStats, _NullStats
 
 logger = logging.getLogger(__name__)
 
@@ -188,11 +189,15 @@ class FallbackBackend(LLMBackend):
         self,
         primary: LLMBackend,
         fallback_factory: Callable[[], BundledBackend],
+        stats: DiagnosticStats | _NullStats | None = None,
     ) -> None:
         self._primary = primary
         self._fallback_factory = fallback_factory
         self._fallback: BundledBackend | None = None
         self._using_fallback = False
+        from .stats import NULL_STATS
+
+        self._stats = stats or NULL_STATS
 
     def _get_fallback(self) -> BundledBackend:
         if self._fallback is None:
@@ -211,20 +216,28 @@ class FallbackBackend(LLMBackend):
     async def generate(self, system: str, user: str) -> str:
         try:
             result = await self._primary.generate(system, user)
-            self._using_fallback = False
+            if self._using_fallback:
+                self._using_fallback = False
+                self._stats.inc("backend.recovery")
             return result
         except Exception as exc:
             logger.warning("Primary backend failed (%s), using bundled fallback", exc)
+            if not self._using_fallback:
+                self._stats.inc("backend.fallback")
             self._using_fallback = True
             return await self._get_fallback().generate(system, user)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         try:
             result = await self._primary.embed(texts)
-            self._using_fallback = False
+            if self._using_fallback:
+                self._using_fallback = False
+                self._stats.inc("backend.recovery")
             return result
         except Exception as exc:
             logger.warning("Primary embedding failed (%s), using bundled fallback", exc)
+            if not self._using_fallback:
+                self._stats.inc("backend.fallback")
             self._using_fallback = True
             return await self._get_fallback().embed(texts)
 
@@ -234,7 +247,10 @@ class FallbackBackend(LLMBackend):
             await self._fallback.close()
 
 
-def create_backend(config: Config) -> LLMBackend:
+def create_backend(
+    config: Config,
+    stats: DiagnosticStats | _NullStats | None = None,
+) -> LLMBackend:
     if config.llm_backend == "openai":
         if not config.openai_api_key:
             raise ValueError("OPENAI_API_KEY is required when LLM_BACKEND=openai")
@@ -261,7 +277,7 @@ def create_backend(config: Config) -> LLMBackend:
                 n_threads=config.bundled_threads,
             )
 
-        return FallbackBackend(primary, _make_fallback)
+        return FallbackBackend(primary, _make_fallback, stats=stats)
 
     return BundledBackend(
         model_path=config.bundled_model_path,

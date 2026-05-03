@@ -15,25 +15,29 @@ from .config import Config, validate_slug
 from .mcp_server import mcp_router, set_engine
 from .memory_engine import MemoryEngine
 from .models import MemoryCreate, MemoryRecord, ProjectInfo, SearchRequest
+from .stats import DiagnosticStats
 
 logger = logging.getLogger(__name__)
 
 config = Config.from_env()
-backend = create_backend(config)
-engine = MemoryEngine(config, backend)
+stats = DiagnosticStats(config.stats_path)
+backend = create_backend(config, stats=stats)
+engine = MemoryEngine(config, backend, stats=stats)
 set_engine(engine)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    await stats.start_flush_loop()
     yield
+    await stats.shutdown()
     await engine.close()
 
 
 app = FastAPI(
     title="mem-zero",
     description="Project-isolated MCP memory server",
-    version="0.1.35.8",
+    version="0.1.35.9",
     lifespan=lifespan,
 )
 
@@ -262,6 +266,34 @@ async def consolidate_memories(
         logger.exception("Consolidation failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return result
+
+
+@app.get("/api/v1/diagnostics")
+async def get_diagnostics() -> dict[str, object]:
+    if not config.diagnostics_enabled:
+        raise HTTPException(status_code=404, detail="Diagnostics disabled")
+    return stats.snapshot()
+
+
+@app.get("/api/v1/projects/{slug}/diagnostics")
+async def get_project_diagnostics(slug: str = Path(...)) -> dict[str, object]:
+    if not config.diagnostics_enabled:
+        raise HTTPException(status_code=404, detail="Diagnostics disabled")
+    slug = _validated_slug(slug)
+    return stats.snapshot(project=slug)
+
+
+@app.post("/api/v1/diagnostics/reset")
+async def reset_diagnostics() -> dict[str, str]:
+    if not config.diagnostics_enabled:
+        raise HTTPException(status_code=404, detail="Diagnostics disabled")
+    stats.reset()
+    return {"status": "reset"}
+
+
+@app.post("/api/v1/diagnostics/export")
+async def export_diagnostics() -> dict[str, object]:
+    return stats.snapshot()
 
 
 _static_dir = FilePath(__file__).parent / "static"
