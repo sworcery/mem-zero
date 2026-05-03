@@ -183,7 +183,15 @@ class MemoryEngine:
             )
             self._stats.inc("embed")
             self._stats.inc("embed.texts", len(texts))
+            for i, vec in enumerate(result):
+                if not any(vec):
+                    self._stats.inc("embed.zero_vectors")
+                    raise EmbeddingError(
+                        f"Embedding model returned zero vector for text: {texts[i][:80]!r}"
+                    )
             return result
+        except EmbeddingError:
+            raise
         except Exception:
             self._stats.record_latency(
                 "embed", (time.monotonic() - t0) * 1000
