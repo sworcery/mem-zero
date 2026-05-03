@@ -2,11 +2,11 @@
 <Container version="2">
   <Name>mem-zero</Name>
   <Repository>ghcr.io/sworcery/mem-zero:latest</Repository>
-  <Registry/>
+  <Registry>https://github.com/sworcery/mem-zero</Registry>
   <Network>bridge</Network>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
-  <Support/>
+  <Support>https://github.com/sworcery/mem-zero/issues</Support>
   <WebUI>http://[IP]:[PORT:8765]/</WebUI>
   <Overview>Project-isolated MCP memory server with embedded Qdrant and bundled LLM.</Overview>
   <Category>Tools:</Category>
