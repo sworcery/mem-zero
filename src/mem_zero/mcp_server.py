@@ -100,6 +100,12 @@ async def handle_mcp(request: Request, client_name: str, user_id: str) -> Respon
             status_code=400,
         )
 
+    if not user_id or len(user_id) > 63 or not user_id.replace("-", "").replace("_", "").isalnum():
+        return Response(
+            content=f"Invalid user_id: {user_id!r}",
+            status_code=400,
+        )
+
     client_token = client_name_var.set(client_name)
     user_token = user_id_var.set(user_id)
 

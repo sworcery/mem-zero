@@ -14,7 +14,7 @@ class MemoryRecord(BaseModel):
 
 
 class MemoryCreate(BaseModel):
-    text: str
+    text: str = Field(..., max_length=50000)
     metadata: dict[str, object] = Field(default_factory=dict)
 
 

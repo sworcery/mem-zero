@@ -70,22 +70,22 @@ The project slug must be lowercase alphanumeric with hyphens or underscores (1-6
 
 ## LLM backends
 
-mem-zero supports three LLM backends. The default is **bundled** — no external dependencies needed.
+mem-zero supports three LLM backends for fact extraction and deduplication.
 
 | Backend | LLM | Embeddings | Setup |
 |---------|-----|------------|-------|
-| **bundled** (default) | Qwen2.5-3B (built-in) | nomic-embed-text via fastembed | Zero config — just run the container |
-| **ollama** | Any Ollama model | Any Ollama embedding model | Set `OLLAMA_BASE_URL` |
-| **openai** | Any OpenAI-compatible API | Any OpenAI-compatible embeddings | Set `OPENAI_API_KEY` |
+| **ollama** (recommended) | Any Ollama model | Any Ollama embedding model | Set `OLLAMA_BASE_URL` |
+| **bundled** (default) | Qwen2.5-3B (built-in, CPU) | nomic-embed-text via fastembed | Zero config — just run the container |
+| **openai** (beta) | Any OpenAI-compatible API | Any OpenAI-compatible embeddings | Set `OPENAI_API_KEY` |
 
 **Auto-detection:** If `LLM_BACKEND` is not set, the backend is chosen automatically:
 - `OPENAI_API_KEY` present → `openai`
 - `OLLAMA_BASE_URL` present → `ollama`
 - Neither → `bundled`
 
-**Fallback:** When using `ollama`, if the Ollama server is unreachable, requests automatically fall back to the bundled model. The fallback is lazy — the bundled model only loads into memory on the first failure.
+### Using with Ollama (recommended)
 
-### Using with Ollama
+Ollama gives the best results. The bundled 3B model works for basic use, but a 7B+ model on GPU produces significantly better fact extraction. If you have a dedicated GPU, `qwen2.5:14b` is the sweet spot for quality vs. resource usage.
 
 ```bash
 docker run -d \
@@ -93,11 +93,17 @@ docker run -d \
   -p 8765:8765 \
   -v mem-zero-data:/mem-zero/storage \
   -e OLLAMA_BASE_URL=http://your-ollama-host:11434 \
-  -e LLM_MODEL=qwen2.5:7b \
+  -e LLM_MODEL=qwen2.5:14b \
   ghcr.io/sworcery/mem-zero:latest
 ```
 
-### Using with OpenAI (or compatible APIs)
+**Fallback:** When using Ollama, if the server is unreachable, requests automatically fall back to the bundled 3B model. The fallback is lazy — it only loads into memory on the first failure. Extraction quality is reduced but the service stays available.
+
+### Using the bundled backend
+
+The bundled backend runs a quantized Qwen2.5-3B model on CPU with no external dependencies. It handles embeddings well and provides basic fact extraction. For better extraction quality, use Ollama or an OpenAI-compatible API.
+
+### Using with OpenAI-compatible APIs (beta)
 
 ```bash
 docker run -d \
@@ -108,7 +114,7 @@ docker run -d \
   ghcr.io/sworcery/mem-zero:latest
 ```
 
-Works with any OpenAI-compatible API (Groq, Together, etc.) by setting `OPENAI_BASE_URL`.
+Works with any OpenAI-compatible API (OpenAI, Groq, Together, etc.) by setting `OPENAI_BASE_URL`. This backend has not been extensively tested — if you encounter issues, please report them.
 
 ## Web dashboard
 

@@ -11,12 +11,12 @@ services:
       # Auto-detected from env vars if not set explicitly.
       # - LLM_BACKEND=bundled
 
-      # Ollama settings (only used when LLM_BACKEND=ollama)
+      # Ollama settings (recommended — much better extraction than bundled 3B)
       # - OLLAMA_BASE_URL=http://your-ollama-host:11434
-      # - LLM_MODEL=qwen2.5:7b
+      # - LLM_MODEL=qwen2.5:14b
       # - EMBEDDER_MODEL=nomic-embed-text
 
-      # OpenAI settings (only used when LLM_BACKEND=openai)
+      # OpenAI-compatible settings (beta)
       # - OPENAI_API_KEY=sk-...
       # - OPENAI_BASE_URL=https://api.openai.com/v1
       # - OPENAI_MODEL=gpt-4o-mini

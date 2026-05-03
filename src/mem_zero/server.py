@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="mem-zero",
     description="Project-isolated MCP memory server",
-    version="0.1.35.14",
+    version="0.1.35.15",
     lifespan=lifespan,
 )
 
@@ -118,6 +118,8 @@ class DashboardAuthMiddleware(BaseHTTPMiddleware):
 
 if config.api_key:
     app.add_middleware(APIKeyMiddleware, api_key=config.api_key)
+else:
+    logger.warning("API_KEY is not set — all API and MCP endpoints are unauthenticated")
 
 if config.dashboard_user and config.dashboard_pass:
     app.add_middleware(
@@ -293,6 +295,8 @@ async def reset_diagnostics() -> dict[str, str]:
 
 @app.post("/api/v1/diagnostics/export")
 async def export_diagnostics() -> dict[str, object]:
+    if not config.diagnostics_enabled:
+        raise HTTPException(status_code=404, detail="Diagnostics disabled")
     return stats.snapshot()
 
 
