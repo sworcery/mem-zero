@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mem-zero"
-version = "0.1.35.13"
+version = "0.1.35.14"
 description = "Project-isolated MCP memory server"
 requires-python = ">=3.10"
 license = "MIT"
