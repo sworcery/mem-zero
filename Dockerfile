@@ -1,6 +1,3 @@
-FROM qdrant/qdrant:v1.14.1 AS qdrant-1-14
-FROM qdrant/qdrant:v1.15.5 AS qdrant-1-15
-FROM qdrant/qdrant:v1.16.3 AS qdrant-1-16
 FROM qdrant/qdrant:v1.17.1 AS qdrant-bin
 
 FROM ubuntu:24.04
@@ -29,10 +26,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=qdrant-bin /qdrant/qdrant /usr/local/bin/qdrant
 COPY --from=qdrant-bin /qdrant/config /qdrant/config
 COPY --from=qdrant-bin /qdrant/static /qdrant/static
-
-COPY --from=qdrant-1-14 /qdrant/qdrant /usr/local/bin/qdrant-migrate/1.14.1
-COPY --from=qdrant-1-15 /qdrant/qdrant /usr/local/bin/qdrant-migrate/1.15.5
-COPY --from=qdrant-1-16 /qdrant/qdrant /usr/local/bin/qdrant-migrate/1.16.3
 
 RUN set -e && \
     S6_ARCH="${TARGETARCH:-$(uname -m)}" && \
