@@ -716,6 +716,10 @@
         <span class="footer-value" id="footer-backend">—</span>
       </div>
       <div class="footer-row">
+        <span class="footer-label">Model</span>
+        <span class="footer-value" id="footer-model">—</span>
+      </div>
+      <div class="footer-row">
         <span class="footer-label">Dims</span>
         <span class="footer-value" id="footer-dims">—</span>
       </div>
@@ -833,6 +837,7 @@
   const healthDot     = $('health-dot');
   const statusText    = $('status-text');
   const footerBackend = $('footer-backend');
+  const footerModel   = $('footer-model');
   const footerDims    = $('footer-dims');
   const modalBackdrop = $('modal-backdrop');
   const modalTitle    = $('modal-title');
@@ -1218,6 +1223,7 @@
     try {
       const cfg = await API.config();
       footerBackend.textContent = cfg.llm_backend         || '—';
+      footerModel.textContent   = cfg.llm_model || cfg.openai_model || cfg.bundled_model_path?.split('/').pop()?.replace('.gguf','') || '—';
       footerDims.textContent    = cfg.embedding_dimensions || '—';
     } catch(_) {}
   }
