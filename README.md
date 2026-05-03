@@ -195,7 +195,10 @@ POST   /api/v1/projects/{slug}/search            — search {"query": "...", "to
 DELETE /api/v1/projects/{slug}/memories/{id}      — delete one
 DELETE /api/v1/projects/{slug}/memories           — delete all memories
 DELETE /api/v1/projects/{slug}                    — delete entire project
+POST   /api/v1/projects/{slug}/reembed            — regenerate embeddings for all memories
+POST   /api/v1/projects/{slug}/cleanup            — fix garbled text and split multi-fact entries
 POST   /api/v1/projects/{slug}/consolidate        — merge similar fragments into clean summaries
+GET    /api/v1/diagnostics                        — performance and accuracy metrics
 ```
 
 ## Configuration
@@ -214,6 +217,7 @@ All settings are via environment variables.
 | `PORT` | `8765` | Server port |
 | `DASHBOARD_USER` | — | Dashboard login username (auth disabled if empty) |
 | `DASHBOARD_PASS` | — | Dashboard login password |
+| `DIAGNOSTICS_ENABLED` | `false` | Enable performance and accuracy metrics on the dashboard |
 
 ### Bundled backend
 
@@ -268,4 +272,4 @@ An Unraid Docker template is included at `unraid-template.xml`. Install it throu
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+AGPL-3.0 — see [LICENSE](LICENSE).
