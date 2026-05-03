@@ -6,7 +6,7 @@
   <Network>bridge</Network>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/sworcery/mem-zero/issues</Support>
+  <Support>https://forums.unraid.net/topic/198592-support-mem-zero-self-hosted-mcp-memory-server-for-ai-coding-assistants/</Support>
   <WebUI>http://[IP]:[PORT:8765]/</WebUI>
   <Overview>Project-isolated MCP memory server with embedded Qdrant and bundled LLM.</Overview>
   <Category>Tools:</Category>
