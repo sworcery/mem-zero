@@ -61,7 +61,7 @@ curl -X POST http://your-host:8765/api/v1/projects/my-project/search \
   -d '{"query": "database decision", "top_k": 5}'
 ```
 
-The project slug must be lowercase alphanumeric with hyphens or underscores (1-63 chars). Each unique slug creates an isolated collection.
+The project slug must start with a letter or number, followed by lowercase alphanumeric characters, hyphens, or underscores (1-63 chars). Each unique slug creates an isolated collection.
 
 ## How it works
 
@@ -122,10 +122,14 @@ Works with any OpenAI-compatible API (OpenAI, Groq, Together, etc.) by setting `
 
 A management UI is served at the root URL (`http://your-host:8765/`). From the dashboard you can:
 
+- Monitor system health, uptime, and live performance charts
 - Browse all projects and their memory counts
 - View, search, and delete memories per project
+- Consolidate similar memory fragments
 - Delete entire projects
 - Add new memories manually
+
+Enable `DIAGNOSTICS_ENABLED=true` to see performance metrics, accuracy stats, score distributions, and error tracking on the home page.
 
 Optionally protect it with basic auth via `DASHBOARD_USER` and `DASHBOARD_PASS`.
 
