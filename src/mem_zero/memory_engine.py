@@ -464,7 +464,13 @@ class MemoryEngine:
         self._stats.inc("reembed")
         self._stats.inc_project(project_slug, "reembed")
         collection = await self._ensure_collection(project_slug)
-        updated = 0
+
+        info = await self._qdrant.get_collection(collection)
+        current_dims = self._backend.embedding_dimensions
+        collection_dims = info.config.params.vectors.size  # type: ignore[union-attr]
+        dimension_change = collection_dims != current_dims
+
+        all_payloads: list[tuple[str | int, dict]] = []
         offset = None
         while True:
             points, next_offset = await self._qdrant.scroll(
@@ -477,18 +483,33 @@ class MemoryEngine:
             if not points:
                 break
             for pt in points:
-                text = pt.payload.get("text", "")
-                if not text:
-                    continue
-                vectors = await self._timed_embed([text])
-                await self._qdrant.upsert(
-                    collection_name=collection,
-                    points=[PointStruct(id=pt.id, vector=vectors[0], payload=pt.payload)],
-                )
-                updated += 1
+                if pt.payload.get("text"):
+                    all_payloads.append((pt.id, pt.payload))
             if next_offset is None:
                 break
             offset = next_offset
+
+        if dimension_change:
+            logger.info(
+                "Dimension change %d→%d for %s, recreating collection",
+                collection_dims, current_dims, collection,
+            )
+            await self._qdrant.delete_collection(collection)
+            self._ensured_collections.discard(collection)
+            collection = await self._ensure_collection(project_slug)
+
+        updated = 0
+        for point_id, payload in all_payloads:
+            text = payload.get("text", "")
+            if not text:
+                continue
+            vectors = await self._timed_embed([text])
+            await self._qdrant.upsert(
+                collection_name=collection,
+                points=[PointStruct(id=point_id, vector=vectors[0], payload=payload)],
+            )
+            updated += 1
+
         logger.info("Re-embedded %d points in %s", updated, collection)
         return updated
 
