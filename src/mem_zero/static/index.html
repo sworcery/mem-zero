@@ -1677,7 +1677,7 @@
       const d = perf[k];
       const avg = d.avg_ms || 0;
       const thresh = perfThreshold(k);
-      const cls = avg < thresh * 0.5 ? 'ok' : avg < thresh ? 'warn' : 'bad';
+      const cls = avg <= thresh ? 'ok' : 'bad';
       let panel = container.querySelector(`[data-key="${k}"]`);
       if (!panel) {
         panel = document.createElement('div');
@@ -1749,7 +1749,8 @@
     ctx.lineTo(startOffset + (values.length - 1) * xStep, H);
     ctx.lineTo(startOffset, H);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(61, 214, 140, 0.08)';
+    const overThreshold = values[values.length - 1] > threshold;
+    ctx.fillStyle = overThreshold ? 'rgba(233, 69, 96, 0.08)' : 'rgba(61, 214, 140, 0.08)';
     ctx.fill();
 
     // line
@@ -1758,7 +1759,7 @@
     for (let i = 1; i < values.length; i++) {
       ctx.lineTo(startOffset + i * xStep, toY(values[i]));
     }
-    ctx.strokeStyle = values[values.length - 1] > threshold ? '#e94560' : '#3dd68c';
+    ctx.strokeStyle = overThreshold ? '#e94560' : '#3dd68c';
     ctx.lineWidth = 2;
     ctx.lineJoin = 'round';
     ctx.stroke();
