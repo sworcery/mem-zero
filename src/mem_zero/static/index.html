@@ -782,59 +782,55 @@
       font-size: 14px;
     }
 
-    /* Latency bars */
-    .dash-perf-row {
+    /* Latency chart panels */
+    .dash-perf-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 12px;
+    }
+
+    .dash-chart-panel {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px 14px;
+    }
+
+    .dash-chart-header {
       display: flex;
-      align-items: center;
-      gap: 10px;
+      justify-content: space-between;
+      align-items: baseline;
       margin-bottom: 8px;
     }
 
-    .dash-perf-row:last-child { margin-bottom: 0; }
-
-    .dash-perf-name {
-      font-size: 14px;
+    .dash-chart-title {
+      font-size: 13px;
       font-family: "SF Mono", "Fira Code", "Consolas", monospace;
       color: var(--text-dim);
-      width: 100px;
-      flex-shrink: 0;
-      text-align: right;
+      font-weight: 600;
     }
 
-    .dash-perf-bar-wrap {
-      flex: 1;
-      height: 22px;
-      background: var(--bg);
-      border-radius: 3px;
-      overflow: hidden;
-      position: relative;
-    }
-
-    .dash-perf-bar {
-      height: 100%;
-      border-radius: 3px;
-      transition: width 0.4s ease;
-      min-width: 2px;
-    }
-
-    .dash-perf-bar.fast { background: var(--score-ok); }
-    .dash-perf-bar.mid  { background: var(--score-mid); }
-    .dash-perf-bar.slow { background: var(--score-low); }
-
-    .dash-perf-val {
-      font-size: 14px;
+    .dash-chart-value {
+      font-size: 18px;
       font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      font-weight: 700;
       color: var(--text);
-      width: 80px;
-      flex-shrink: 0;
-      text-align: right;
     }
 
-    .dash-perf-extra {
-      font-size: 13px;
+    .dash-chart-value.ok   { color: var(--score-ok); }
+    .dash-chart-value.warn { color: var(--score-mid); }
+    .dash-chart-value.bad  { color: var(--score-low); }
+
+    .dash-chart-sub {
+      font-size: 12px;
       color: var(--text-faint);
-      width: 120px;
-      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .dash-chart-canvas {
+      width: 100%;
+      height: 80px;
+      display: block;
     }
 
     /* Score distribution bars */
@@ -1010,13 +1006,14 @@
         </div>
       </div>
 
-      <div class="dash-row">
-        <div class="dash-section dash-flex">
-          <div class="dash-section-title">Performance <span class="dash-hint">(avg ms)</span></div>
-          <div class="dash-perf" id="dash-perf">
-            <div class="dash-perf-empty">No latency data</div>
-          </div>
+      <div class="dash-section">
+        <div class="dash-section-title">Performance</div>
+        <div class="dash-perf-grid" id="dash-perf">
+          <div class="dash-perf-empty">No latency data</div>
         </div>
+      </div>
+
+      <div class="dash-row">
         <div class="dash-section dash-flex">
           <div class="dash-section-title">Accuracy</div>
           <div class="dash-cards dash-cards-vert">
@@ -1042,7 +1039,6 @@
             </div>
           </div>
         </div>
-      </div>
 
       <div class="dash-row">
         <div class="dash-section dash-flex">
@@ -1623,7 +1619,7 @@
       fbEl.textContent = fmtNum(fb);
       if (fb > 0) fbEl.className = 'dash-stat-value dash-val-warn';
 
-      renderPerfBars(d.performance || {});
+      renderPerfCharts(d.performance || {});
       renderScoreDist(acc.search?.score_distribution || {});
       renderErrors(rel.recent_errors || []);
     } catch(e) {
@@ -1634,27 +1630,146 @@
     }
   }
 
-  function renderPerfBars(perf) {
+  const perfHistory = {};
+  const PERF_MAX_POINTS = 60;
+  const PERF_THRESHOLDS = {
+    add_memory: 20000, search: 1000, embed: 1000,
+    generate: 8000, dedup: 5000, reembed: 2000,
+    _default: 5000,
+  };
+
+  function perfThreshold(key) {
+    return PERF_THRESHOLDS[key] || PERF_THRESHOLDS._default;
+  }
+
+  function recordPerfSnapshot(perf) {
+    const now = Date.now();
+    for (const [key, data] of Object.entries(perf)) {
+      if (!perfHistory[key]) perfHistory[key] = { times: [], avgs: [], p95s: [], counts: [] };
+      const h = perfHistory[key];
+      h.times.push(now);
+      h.avgs.push(data.avg_ms || 0);
+      h.p95s.push(data.p95 || 0);
+      h.counts.push(data.count || 0);
+      while (h.times.length > PERF_MAX_POINTS) {
+        h.times.shift(); h.avgs.shift(); h.p95s.shift(); h.counts.shift();
+      }
+    }
+  }
+
+  function renderPerfCharts(perf) {
     const container = $('dash-perf');
     const keys = Object.keys(perf);
     if (!keys.length) {
       container.innerHTML = '<div class="dash-perf-empty">No latency data</div>';
       return;
     }
-    const maxAvg = Math.max(...keys.map(k => perf[k].avg_ms || 0), 1);
-    container.innerHTML = keys.map(k => {
+    recordPerfSnapshot(perf);
+
+    const existingKeys = new Set(Array.from(container.querySelectorAll('.dash-chart-panel')).map(el => el.dataset.key));
+    const neededKeys = new Set(keys);
+
+    for (const k of existingKeys) {
+      if (!neededKeys.has(k)) container.querySelector(`[data-key="${k}"]`)?.remove();
+    }
+
+    for (const k of keys) {
       const d = perf[k];
       const avg = d.avg_ms || 0;
-      const pct = Math.min((avg / maxAvg) * 100, 100);
-      const cls = avg < 100 ? 'fast' : avg < 500 ? 'mid' : 'slow';
-      const p95 = d.p95 !== null ? `p95: ${d.p95}ms` : '';
-      return `<div class="dash-perf-row">
-        <span class="dash-perf-name">${esc(k)}</span>
-        <div class="dash-perf-bar-wrap"><div class="dash-perf-bar ${cls}" style="width:${pct}%"></div></div>
-        <span class="dash-perf-val">${avg.toFixed(0)} ms</span>
-        <span class="dash-perf-extra">${p95}</span>
-      </div>`;
-    }).join('');
+      const thresh = perfThreshold(k);
+      const cls = avg < thresh * 0.5 ? 'ok' : avg < thresh ? 'warn' : 'bad';
+      let panel = container.querySelector(`[data-key="${k}"]`);
+      if (!panel) {
+        panel = document.createElement('div');
+        panel.className = 'dash-chart-panel';
+        panel.dataset.key = k;
+        panel.innerHTML = `
+          <div class="dash-chart-header">
+            <span class="dash-chart-title"></span>
+            <span class="dash-chart-value"></span>
+          </div>
+          <canvas class="dash-chart-canvas"></canvas>
+          <div class="dash-chart-sub"></div>`;
+        container.appendChild(panel);
+      }
+      panel.querySelector('.dash-chart-title').textContent = k;
+      const valEl = panel.querySelector('.dash-chart-value');
+      valEl.textContent = avg >= 1000 ? (avg / 1000).toFixed(1) + 's' : avg.toFixed(0) + 'ms';
+      valEl.className = 'dash-chart-value ' + cls;
+      const p95Text = d.p95 !== null ? `p95: ${d.p95 >= 1000 ? (d.p95/1000).toFixed(1)+'s' : d.p95+'ms'}` : '';
+      const countText = d.count ? `${fmtNum(d.count)} ops` : '';
+      panel.querySelector('.dash-chart-sub').textContent = [countText, p95Text].filter(Boolean).join('  ·  ');
+
+      const canvas = panel.querySelector('canvas');
+      drawChart(canvas, perfHistory[k], thresh);
+    }
+  }
+
+  function drawChart(canvas, history, threshold) {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const W = rect.width;
+    const H = rect.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const values = history.avgs;
+    if (values.length < 2) return;
+
+    const allVals = [...values, threshold];
+    const maxVal = Math.max(...allVals) * 1.15;
+    const minVal = 0;
+    const range = maxVal - minVal || 1;
+
+    const xStep = W / (PERF_MAX_POINTS - 1);
+    const startOffset = (PERF_MAX_POINTS - values.length) * xStep;
+
+    const toY = v => H - ((v - minVal) / range) * (H - 4) - 2;
+
+    // threshold line
+    const threshY = toY(threshold);
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = '#e94560';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, threshY);
+    ctx.lineTo(W, threshY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // fill under the line
+    ctx.beginPath();
+    ctx.moveTo(startOffset, toY(values[0]));
+    for (let i = 1; i < values.length; i++) {
+      ctx.lineTo(startOffset + i * xStep, toY(values[i]));
+    }
+    ctx.lineTo(startOffset + (values.length - 1) * xStep, H);
+    ctx.lineTo(startOffset, H);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(61, 214, 140, 0.08)';
+    ctx.fill();
+
+    // line
+    ctx.beginPath();
+    ctx.moveTo(startOffset, toY(values[0]));
+    for (let i = 1; i < values.length; i++) {
+      ctx.lineTo(startOffset + i * xStep, toY(values[i]));
+    }
+    ctx.strokeStyle = values[values.length - 1] > threshold ? '#e94560' : '#3dd68c';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    // latest point dot
+    const lastX = startOffset + (values.length - 1) * xStep;
+    const lastY = toY(values[values.length - 1]);
+    ctx.beginPath();
+    ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fill();
   }
 
   function renderScoreDist(dist) {
@@ -1794,6 +1909,7 @@
     loadDashboard();
     setInterval(checkHealth, 30_000);
     setInterval(loadProjects, 60_000);
+    setInterval(() => { if (!state.activeSlug) loadDashboard(); }, 15_000);
   }
 
   init();
