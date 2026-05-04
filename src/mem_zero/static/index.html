@@ -5,42 +5,46 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>mem-zero</title>
   <link rel="icon" type="image/png" href="/icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <style>
-    /* ── Reset & base ── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:         #1a1a2e;
-      --bg-mid:     #16213e;
-      --bg-card:    #0f1f3d;
-      --accent:     #0f3460;
-      --accent-hi:  #1a4a8a;
-      --danger:     #e94560;
-      --danger-hi:  #ff6080;
-      --text:       #eeeef0;
-      --text-dim:   #9999b3;
-      --text-faint: #5a5a7a;
-      --border:     #1e2f55;
-      --score-ok:   #3dd68c;
-      --score-mid:  #f7c948;
-      --score-low:  #e94560;
-      --radius:     8px;
-      --sidebar-w:  260px;
-      --topbar-h:   56px;
-      --trans:      0.18s ease;
+      --bg:        #1a1b26;
+      --surface:   #1f2030;
+      --elevated:  #24253a;
+      --hover:     #2a2b3f;
+      --border:    #32344a;
+      --text:      #c0caf5;
+      --dim:       #9aa5ce;
+      --faint:     #565a7e;
+      --green:     #4ade80;
+      --green-glow: 0 0 12px rgba(74,222,128,0.3);
+      --blue:      #60a5fa;
+      --blue-glow: 0 0 12px rgba(96,165,250,0.3);
+      --cyan:      #22d3ee;
+      --cyan-glow: 0 0 12px rgba(34,211,238,0.3);
+      --orange:    #fb923c;
+      --orange-glow: 0 0 12px rgba(251,146,60,0.3);
+      --yellow:    #facc15;
+      --yellow-glow: 0 0 12px rgba(250,204,21,0.3);
+      --red:       #ef4444;
+      --sidebar-w: 240px;
+      --topbar-h:  52px;
     }
 
     html, body {
       height: 100%;
       background: var(--bg);
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 16px;
+      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 14px;
       line-height: 1.5;
       overflow: hidden;
     }
 
-    /* ── Layout shell ── */
     #app {
       display: grid;
       grid-template-columns: var(--sidebar-w) 1fr;
@@ -48,103 +52,148 @@
       height: 100vh;
     }
 
-    /* ── Top bar ── */
+    /* ── Scrollbars ── */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--faint); }
+
+    /* ── Topbar ── */
     #topbar {
       grid-column: 1 / -1;
       display: flex;
       align-items: center;
-      gap: 16px;
-      padding: 0 20px;
-      background: var(--bg-mid);
+      gap: 0;
+      padding: 0 20px 0 0;
+      background: var(--surface);
       border-bottom: 1px solid var(--border);
-      z-index: 10;
+      z-index: 20;
+      height: var(--topbar-h);
     }
 
-    #topbar .logo {
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-      color: var(--text);
-      white-space: nowrap;
+    #logo-area {
       display: flex;
       align-items: center;
-      gap: 8px;
+      width: var(--sidebar-w);
+      padding: 0 20px;
+      flex-shrink: 0;
+      gap: 0;
+      cursor: pointer;
+      user-select: none;
     }
 
-    #topbar .logo span {
-      color: var(--danger);
+    .logo-mem {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--blue);
+      text-shadow: var(--blue-glow);
+      letter-spacing: -0.5px;
     }
 
-    #search-wrap {
+    .logo-dash {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--cyan);
+      text-shadow: var(--cyan-glow);
+      letter-spacing: -0.5px;
+    }
+
+    .logo-cursor {
+      display: inline-block;
+      width: 10px;
+      height: 18px;
+      background: var(--green);
+      box-shadow: var(--green-glow);
+      margin-left: 3px;
+      vertical-align: text-bottom;
+      animation: blink 1.1s step-end infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    #tab-nav {
+      display: flex;
+      align-items: stretch;
+      height: 100%;
+      gap: 0;
       flex: 1;
-      max-width: 480px;
+    }
+
+    .tab-btn {
+      display: flex;
+      align-items: center;
+      padding: 0 18px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--faint);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      letter-spacing: 0.3px;
+      transition: color 0.15s, border-color 0.15s;
+      white-space: nowrap;
       position: relative;
     }
 
-    #search-input {
-      width: 100%;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
+    .tab-btn:hover { color: var(--dim); }
+
+    .tab-btn.active {
       color: var(--text);
-      font-size: 15px;
-      padding: 7px 36px 7px 12px;
-      outline: none;
-      transition: border-color var(--trans);
+      border-bottom-color: var(--blue);
     }
 
-    #search-input::placeholder { color: var(--text-faint); }
-
-    #search-input:focus {
-      border-color: var(--accent-hi);
-    }
-
-    #search-clear {
-      position: absolute;
-      right: 8px;
-      top: 50%;
-      transform: translateY(-50%);
-      background: none;
-      border: none;
-      color: var(--text-faint);
-      cursor: pointer;
-      font-size: 18px;
-      line-height: 1;
-      padding: 2px;
-      display: none;
-      transition: color var(--trans);
-    }
-
-    #search-clear:hover { color: var(--text); }
-
-    #search-wrap.has-query #search-clear { display: block; }
-
-    #topbar-status {
-      margin-left: auto;
+    #topbar-right {
       display: flex;
       align-items: center;
-      gap: 8px;
-      font-size: 13px;
-      color: var(--text-dim);
-      white-space: nowrap;
+      gap: 10px;
+      margin-left: auto;
     }
 
-    .health-dot {
+    .status-dot {
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: var(--text-faint);
+      background: var(--faint);
       flex-shrink: 0;
-      transition: background var(--trans);
+      transition: background 0.3s;
     }
 
-    .health-dot.ok  { background: var(--score-ok); }
-    .health-dot.err { background: var(--danger); }
+    .status-dot.ok {
+      background: var(--green);
+      box-shadow: var(--green-glow);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+
+    .status-dot.err { background: var(--red); }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    #status-text {
+      font-size: 12px;
+      color: var(--dim);
+    }
+
+    #version-badge {
+      font-size: 11px;
+      color: var(--faint);
+      background: var(--elevated);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 2px 6px;
+    }
 
     /* ── Sidebar ── */
     #sidebar {
       grid-row: 2;
-      background: var(--bg-mid);
+      background: var(--surface);
       border-right: 1px solid var(--border);
       display: flex;
       flex-direction: column;
@@ -152,135 +201,693 @@
     }
 
     #sidebar-header {
-      padding: 14px 16px 10px;
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.8px;
-      text-transform: uppercase;
-      color: var(--text-faint);
+      padding: 14px 16px 8px;
       display: flex;
       align-items: center;
       justify-content: space-between;
     }
 
-    #refresh-btn {
+    .sidebar-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+
+    #sidebar-refresh {
       background: none;
       border: none;
-      color: var(--text-faint);
+      color: var(--faint);
       cursor: pointer;
-      font-size: 16px;
-      padding: 2px 4px;
-      border-radius: 4px;
-      transition: color var(--trans), background var(--trans);
+      font-size: 14px;
+      padding: 3px;
+      border-radius: 3px;
+      font-family: inherit;
+      transition: color 0.15s;
       line-height: 1;
     }
 
-    #refresh-btn:hover {
-      color: var(--text);
-      background: var(--border);
-    }
-
-    #refresh-btn.spinning { animation: spin 0.6s linear infinite; }
+    #sidebar-refresh:hover { color: var(--dim); }
+    #sidebar-refresh.spinning { animation: spin 0.6s linear infinite; }
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
     #project-list {
       flex: 1;
       overflow-y: auto;
-      padding: 4px 8px;
+      padding: 2px 8px 8px;
     }
 
-    #project-list::-webkit-scrollbar { width: 4px; }
-    #project-list::-webkit-scrollbar-track { background: transparent; }
-    #project-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-    .project-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 9px 12px;
-      border-radius: var(--radius);
-      cursor: pointer;
-      transition: background var(--trans), color var(--trans);
-      margin-bottom: 2px;
-      user-select: none;
-    }
-
-    .project-item:hover { background: var(--accent); }
-
-    .project-item.active {
-      background: var(--accent-hi);
-      color: var(--text);
-    }
-
-    .project-name {
-      font-size: 15px;
-      font-weight: 500;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .project-count {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-faint);
-      background: var(--bg-card);
-      border-radius: 20px;
-      padding: 1px 7px;
-      flex-shrink: 0;
-      min-width: 28px;
-      text-align: center;
-    }
-
-    .project-item.active .project-count { color: var(--text-dim); }
-
-    #sidebar-footer {
-      padding: 12px 16px;
-      border-top: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .footer-row {
+    .proj-item {
       display: flex;
       align-items: center;
       gap: 6px;
-      font-size: 12px;
-      color: var(--text-faint);
+      padding: 8px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.12s;
+      margin-bottom: 1px;
+      user-select: none;
     }
 
-    .footer-label { font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .proj-item:hover { background: var(--hover); }
 
-    .footer-value {
-      color: var(--text-dim);
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    .proj-item.active {
+      background: var(--elevated);
+      border: 1px solid var(--border);
+    }
+
+    .proj-tilde {
+      color: var(--faint);
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    .proj-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .proj-item.active .proj-name { color: var(--cyan); }
+
+    .proj-count {
+      font-size: 11px;
+      color: var(--faint);
+      background: var(--bg);
+      border-radius: 10px;
+      padding: 1px 6px;
+      flex-shrink: 0;
+      min-width: 24px;
+      text-align: center;
+    }
+
+    #sidebar-footer {
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .sf-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 2px 0;
+    }
+
+    .sf-key {
+      font-size: 11px;
+      color: var(--faint);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .sf-val {
+      font-size: 11px;
+      color: var(--dim);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 140px;
+      text-align: right;
+    }
+
+    /* ── Main ── */
+    #main {
+      grid-row: 2;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tab-panel {
+      display: none;
+      flex: 1;
+      overflow: hidden;
+      flex-direction: column;
+    }
+
+    .tab-panel.active {
+      display: flex;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 13px;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+      white-space: nowrap;
+      line-height: 1.4;
+    }
+
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-primary {
+      background: rgba(96,165,250,0.15);
+      border-color: rgba(96,165,250,0.4);
+      color: var(--blue);
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: rgba(96,165,250,0.25);
+      border-color: var(--blue);
+    }
+
+    .btn-green {
+      background: rgba(74,222,128,0.12);
+      border-color: rgba(74,222,128,0.35);
+      color: var(--green);
+    }
+    .btn-green:hover:not(:disabled) {
+      background: rgba(74,222,128,0.22);
+      border-color: var(--green);
+    }
+
+    .btn-cyan {
+      background: rgba(34,211,238,0.1);
+      border-color: rgba(34,211,238,0.3);
+      color: var(--cyan);
+    }
+    .btn-cyan:hover:not(:disabled) {
+      background: rgba(34,211,238,0.2);
+      border-color: var(--cyan);
+    }
+
+    .btn-orange {
+      background: rgba(251,146,60,0.1);
+      border-color: rgba(251,146,60,0.3);
+      color: var(--orange);
+    }
+    .btn-orange:hover:not(:disabled) {
+      background: rgba(251,146,60,0.2);
+      border-color: var(--orange);
+    }
+
+    .btn-danger {
+      background: rgba(239,68,68,0.1);
+      border-color: rgba(239,68,68,0.35);
+      color: var(--red);
+    }
+    .btn-danger:hover:not(:disabled) {
+      background: rgba(239,68,68,0.2);
+      border-color: var(--red);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--dim);
+    }
+    .btn-ghost:hover:not(:disabled) {
+      background: var(--elevated);
+    }
+
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-xs { padding: 2px 8px; font-size: 11px; }
+
+    /* ── Inputs ── */
+    .inp {
+      background: var(--elevated);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      padding: 7px 11px;
+      outline: none;
+      transition: border-color 0.15s;
+      width: 100%;
+    }
+    .inp::placeholder { color: var(--faint); }
+    .inp:focus { border-color: var(--blue); }
+
+    /* ── Toast ── */
+    #toast-area {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 900;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: var(--elevated);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 9px 14px;
+      font-size: 13px;
+      color: var(--text);
+      pointer-events: auto;
+      animation: toast-in 0.2s ease;
+      max-width: 320px;
+      word-break: break-word;
+    }
+
+    .toast.ok { border-color: rgba(74,222,128,0.5); color: var(--green); }
+    .toast.err { border-color: rgba(239,68,68,0.5); color: var(--red); }
+    .toast.warn { border-color: rgba(250,204,21,0.5); color: var(--yellow); }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateX(12px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    /* ── Modal ── */
+    #modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(10,11,20,0.75);
+      z-index: 800;
+      align-items: center;
+      justify-content: center;
+    }
+    #modal-backdrop.open { display: flex; }
+
+    .modal {
+      background: var(--elevated);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 24px;
+      max-width: 400px;
+      width: calc(100% - 40px);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      animation: modal-in 0.18s ease;
+    }
+
+    @keyframes modal-in {
+      from { opacity: 0; transform: scale(0.96) translateY(-8px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .modal-title { font-size: 16px; font-weight: 600; color: var(--text); }
+    .modal-body  { font-size: 13px; color: var(--dim); line-height: 1.6; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+    /* ── Section headers ── */
+    .section-head {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--faint);
+      padding: 16px 20px 8px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    /* ── Empty state ── */
+    .empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 48px 24px;
+      color: var(--faint);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    /* ── Skeleton ── */
+    .skeleton {
+      background: linear-gradient(90deg, var(--elevated) 25%, var(--hover) 50%, var(--elevated) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.3s infinite;
+      border-radius: 4px;
+    }
+    @keyframes shimmer {
+      from { background-position: 200% 0; }
+      to   { background-position: -200% 0; }
+    }
+
+    /* ════════════════════════════════════════════════
+       OVERVIEW TAB
+    ════════════════════════════════════════════════ */
+    #overview-panel {
+      overflow-y: auto;
+      padding: 20px;
+      gap: 16px;
+    }
+
+    .stat-row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .stat-block {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 14px 16px;
+      border-top-width: 2px;
+    }
+
+    .stat-block.green  { border-top-color: var(--green); }
+    .stat-block.blue   { border-top-color: var(--blue); }
+    .stat-block.cyan   { border-top-color: var(--cyan); }
+    .stat-block.yellow { border-top-color: var(--yellow); }
+    .stat-block.orange { border-top-color: var(--orange); }
+
+    .stat-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin-bottom: 6px;
+    }
+
+    .stat-value {
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .stat-value.green  { color: var(--green);  text-shadow: var(--green-glow); }
+    .stat-value.blue   { color: var(--blue);   text-shadow: var(--blue-glow); }
+    .stat-value.cyan   { color: var(--cyan);   text-shadow: var(--cyan-glow); }
+    .stat-value.yellow { color: var(--yellow); text-shadow: var(--yellow-glow); }
+    .stat-value.orange { color: var(--orange); text-shadow: var(--orange-glow); }
+
+    .overview-mid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .ov-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 14px;
+    }
+
+    .ov-card-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin-bottom: 10px;
+    }
+
+    .chart-wrap {
+      position: relative;
+      height: 100px;
+    }
+
+    .chart-wrap canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .ops-log {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+
+    .ops-log-item {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 12px;
+      padding: 2px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .ops-log-item:last-child { border-bottom: none; }
+
+    .ops-time { color: var(--faint); flex-shrink: 0; min-width: 42px; }
+
+    .ops-tag {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .tag-add   { background: rgba(74,222,128,0.15);  color: var(--green); }
+    .tag-find  { background: rgba(96,165,250,0.15);  color: var(--blue); }
+    .tag-del   { background: rgba(239,68,68,0.12);   color: var(--red); }
+    .tag-dedup { background: rgba(250,204,21,0.12);  color: var(--yellow); }
+    .tag-embed { background: rgba(34,211,238,0.12);  color: var(--cyan); }
+    .tag-other { background: rgba(86,90,126,0.2);    color: var(--faint); }
+
+    .ops-proj { color: var(--cyan); }
+    .ops-detail { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .overview-bottom {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .pct-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .pct-table th {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--faint);
+      text-align: left;
+      padding: 4px 6px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .pct-table td {
+      font-size: 12px;
+      padding: 5px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .pct-table tr:last-child td { border-bottom: none; }
+
+    .pct-table td:first-child { color: var(--dim); }
+
+    .val-ok   { color: var(--green); }
+    .val-warn { color: var(--yellow); }
+    .val-bad  { color: var(--red); }
+
+    .bar-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 7px;
+    }
+
+    .bar-item:last-child { margin-bottom: 0; }
+
+    .bar-name {
+      font-size: 11px;
+      color: var(--dim);
+      width: 100px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .bar-track {
+      flex: 1;
+      height: 12px;
+      background: var(--bg);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.4s ease;
+    }
+
+    .bar-val {
+      font-size: 11px;
+      color: var(--faint);
+      min-width: 28px;
+      text-align: right;
+    }
+
+    .err-counter {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+
+    .err-counter:last-child { border-bottom: none; }
+    .err-name { color: var(--dim); }
+    .err-zero { color: var(--green); }
+    .err-nonzero { color: var(--red); font-weight: 600; }
+
+    /* ════════════════════════════════════════════════
+       PROJECTS TAB
+    ════════════════════════════════════════════════ */
+    #projects-panel {
+      overflow: hidden;
+      flex-direction: column;
+    }
+
+    #proj-grid-view {
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    .proj-cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .proj-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 16px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .proj-card:hover {
+      border-color: var(--cyan);
+      background: var(--elevated);
+    }
+
+    .proj-card-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--cyan);
+      margin-bottom: 8px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    /* ── Main content ── */
-    #main {
-      grid-row: 2;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
+    .proj-card-meta {
+      font-size: 12px;
+      color: var(--faint);
     }
 
-    #content-header {
-      padding: 16px 24px 0;
+    .proj-card-count {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+      line-height: 1;
+    }
+
+    .proj-card-badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      background: var(--elevated);
+      color: var(--faint);
+      margin-top: 8px;
+    }
+
+    /* project detail */
+    #proj-detail-view {
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      flex: 1;
+    }
+
+    .proj-detail-header {
+      padding: 16px 20px 0;
       flex-shrink: 0;
     }
 
-    .project-title {
-      font-size: 22px;
+    .proj-detail-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .back-btn {
+      background: none;
+      border: none;
+      color: var(--faint);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+      padding: 3px 6px;
+      border-radius: 3px;
+      transition: color 0.12s, background 0.12s;
+    }
+
+    .back-btn:hover { color: var(--dim); background: var(--elevated); }
+
+    .proj-detail-slug {
+      font-size: 18px;
       font-weight: 700;
+      color: var(--cyan);
+    }
+
+    .proj-mini-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .mini-stat {
+      background: var(--elevated);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 10px 12px;
+    }
+
+    .mini-stat-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--faint);
       margin-bottom: 4px;
     }
 
-    #mcp-url-row {
+    .mini-stat-val {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .mcp-row {
       display: flex;
       align-items: center;
       gap: 8px;
@@ -289,960 +896,918 @@
     }
 
     .mcp-label {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
-      text-transform: uppercase;
       letter-spacing: 0.5px;
-      color: var(--text-faint);
+      text-transform: uppercase;
+      color: var(--faint);
       flex-shrink: 0;
     }
 
-    #mcp-url {
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    .mcp-url-box {
       font-size: 12px;
-      color: var(--text-dim);
-      background: var(--bg-card);
+      color: var(--dim);
+      background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 4px;
+      border-radius: 3px;
       padding: 3px 8px;
+      cursor: pointer;
+      transition: border-color 0.12s, color 0.12s;
+      user-select: none;
+      flex: 1;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      max-width: 480px;
-      cursor: pointer;
-      transition: border-color var(--trans), color var(--trans);
-      user-id: "";
+      min-width: 0;
     }
 
-    #mcp-url:hover { border-color: var(--accent-hi); color: var(--text); }
+    .mcp-url-box:hover { border-color: var(--blue); color: var(--text); }
 
-    #mcp-url-user-edit {
+    .mcp-user-input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      color: var(--dim);
+      font-family: inherit;
       font-size: 12px;
-      background: none;
-      border: none;
-      border-bottom: 1px dashed var(--text-faint);
-      color: var(--text-dim);
+      padding: 3px 7px;
       outline: none;
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-      width: 100px;
-      padding: 1px 2px;
+      width: 90px;
+      transition: border-color 0.12s;
     }
 
-    .action-bar {
+    .mcp-user-input:focus { border-color: var(--blue); }
+
+    .proj-action-bar {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 24px;
+      padding: 10px 20px;
       border-bottom: 1px solid var(--border);
+      border-top: 1px solid var(--border);
       flex-shrink: 0;
       flex-wrap: wrap;
     }
 
-    .action-bar .spacer { flex: 1; }
+    .proj-action-bar .spacer { flex: 1; }
 
-    /* ── Add Memory ── */
-    #add-section {
-      padding: 14px 24px;
+    .proj-search-bar {
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .proj-search-bar .inp {
+      flex: 1;
+    }
+
+    .proj-add-area {
+      padding: 10px 20px;
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
     }
 
-    #add-section .section-label {
-      font-size: 12px;
+    .proj-add-label {
+      font-size: 11px;
       font-weight: 600;
+      letter-spacing: 0.5px;
       text-transform: uppercase;
-      letter-spacing: 0.6px;
-      color: var(--text-faint);
-      margin-bottom: 8px;
+      color: var(--faint);
+      margin-bottom: 6px;
     }
 
-    #add-form {
+    .proj-add-form {
       display: flex;
       gap: 8px;
       align-items: flex-end;
     }
 
-    #add-text {
+    #proj-add-text {
       flex: 1;
-      background: var(--bg-card);
+      background: var(--elevated);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
+      border-radius: 4px;
       color: var(--text);
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-      font-size: 14px;
-      padding: 8px 12px;
+      font-family: inherit;
+      font-size: 13px;
+      padding: 7px 11px;
       resize: vertical;
-      min-height: 60px;
-      max-height: 200px;
+      min-height: 52px;
+      max-height: 160px;
       outline: none;
-      transition: border-color var(--trans);
+      transition: border-color 0.15s;
     }
 
-    #add-text::placeholder { color: var(--text-faint); }
-    #add-text:focus { border-color: var(--accent-hi); }
+    #proj-add-text::placeholder { color: var(--faint); }
+    #proj-add-text:focus { border-color: var(--blue); }
 
-    /* ── Buttons ── */
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 7px 14px;
-      border-radius: var(--radius);
-      border: none;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 500;
-      transition: background var(--trans), opacity var(--trans);
-      white-space: nowrap;
-      line-height: 1.3;
-    }
-
-    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-
-    .btn-primary {
-      background: var(--accent-hi);
-      color: var(--text);
-    }
-    .btn-primary:hover:not(:disabled) { background: #2059a8; }
-
-    .btn-danger {
-      background: transparent;
-      color: var(--danger);
-      border: 1px solid var(--danger);
-    }
-    .btn-danger:hover:not(:disabled) { background: rgba(233,69,96,0.12); }
-
-    .btn-ghost {
-      background: transparent;
-      color: var(--text-dim);
-      border: 1px solid var(--border);
-    }
-    .btn-ghost:hover:not(:disabled) { background: var(--border); }
-
-    .btn-sm { padding: 4px 10px; font-size: 13px; }
-
-    /* ── Memories list ── */
-    #memories-scroll {
+    #memory-list-area {
       flex: 1;
       overflow-y: auto;
-      padding: 16px 24px;
+      padding: 12px 20px;
     }
 
-    #memories-scroll::-webkit-scrollbar { width: 5px; }
-    #memories-scroll::-webkit-scrollbar-track { background: transparent; }
-    #memories-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-
-    #mode-label {
-      font-size: 13px;
-      color: var(--text-faint);
-      margin-bottom: 12px;
+    .mode-label {
+      font-size: 12px;
+      color: var(--faint);
+      margin-bottom: 10px;
     }
 
-    #mode-label strong { color: var(--text-dim); }
+    .mode-label strong { color: var(--dim); }
 
-    .memory-list {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .memory-card {
-      background: var(--bg-card);
+    .mem-card {
+      background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 14px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      transition: border-color var(--trans), transform var(--trans), opacity var(--trans);
-      animation: fadeSlide 0.2s ease;
+      border-radius: 4px;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      transition: border-color 0.12s, opacity 0.2s;
+      animation: card-in 0.18s ease;
     }
 
-    @keyframes fadeSlide {
-      from { opacity: 0; transform: translateY(6px); }
+    @keyframes card-in {
+      from { opacity: 0; transform: translateY(4px); }
       to   { opacity: 1; transform: translateY(0); }
     }
 
-    .memory-card:hover { border-color: var(--accent-hi); }
+    .mem-card:hover { border-color: var(--elevated); }
+    .mem-card.deleting { opacity: 0.25; pointer-events: none; transform: scale(0.98); }
 
-    .memory-card.deleting {
-      opacity: 0.3;
-      pointer-events: none;
-      transform: scale(0.98);
-      transition: all 0.25s ease;
-    }
-
-    .memory-text {
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-      font-size: 14px;
+    .mem-text {
+      font-size: 13px;
       color: var(--text);
       line-height: 1.6;
       white-space: pre-wrap;
       word-break: break-word;
-    }
-
-    .memory-footer {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .memory-meta {
-      font-size: 12px;
-      color: var(--text-faint);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
-
-    .meta-sep { color: var(--text-faint); opacity: 0.4; }
-
-    .memory-user {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-dim);
-      background: var(--accent);
-      border-radius: 4px;
-      padding: 1px 6px;
-    }
-
-    .score-badge {
-      font-size: 12px;
-      font-weight: 700;
-      border-radius: 4px;
-      padding: 1px 7px;
-    }
-
-    .score-high  { background: rgba(61,214,140,0.15); color: var(--score-ok); }
-    .score-mid   { background: rgba(247,201,72,0.15);  color: var(--score-mid); }
-    .score-low   { background: rgba(233,69,96,0.15);  color: var(--score-low); }
-
-    .memory-footer .spacer { flex: 1; }
-
-    .delete-btn {
-      background: none;
-      border: none;
-      color: var(--text-faint);
-      cursor: pointer;
-      font-size: 14px;
-      padding: 3px 6px;
-      border-radius: 4px;
-      transition: color var(--trans), background var(--trans);
-      flex-shrink: 0;
-    }
-
-    .delete-btn:hover { color: var(--danger); background: rgba(233,69,96,0.1); }
-
-    /* ── Empty / placeholder states ── */
-    .empty-state {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 200px;
-      gap: 12px;
-      color: var(--text-faint);
-      text-align: center;
-    }
-
-    .empty-icon { font-size: 42px; opacity: 0.4; }
-    .empty-text { font-size: 14px; }
-
-    /* ── Toast ── */
-    #toast-container {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      z-index: 1000;
-      pointer-events: none;
-    }
-
-    .toast {
-      background: var(--bg-mid);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 10px 16px;
-      font-size: 14px;
-      color: var(--text);
-      pointer-events: auto;
-      animation: toastIn 0.2s ease;
-      max-width: 320px;
-      word-break: break-word;
-    }
-
-    .toast.error { border-color: var(--danger); color: var(--danger-hi); }
-    .toast.success { border-color: var(--score-ok); }
-
-    @keyframes toastIn {
-      from { opacity: 0; transform: translateY(8px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-
-    /* ── Modal ── */
-    #modal-backdrop {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(10,10,20,0.7);
-      z-index: 500;
-      align-items: center;
-      justify-content: center;
-    }
-
-    #modal-backdrop.open { display: flex; }
-
-    .modal {
-      background: var(--bg-mid);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 28px 28px 20px;
-      max-width: 380px;
-      width: calc(100% - 40px);
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      animation: fadeSlide 0.18s ease;
-    }
-
-    .modal-title {
-      font-size: 18px;
-      font-weight: 700;
-    }
-
-    .modal-body { font-size: 14px; color: var(--text-dim); line-height: 1.6; }
-
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-    }
-
-    /* ── Loading skeleton ── */
-    .skeleton {
-      background: linear-gradient(90deg, var(--bg-card) 25%, var(--border) 50%, var(--bg-card) 75%);
-      background-size: 200% 100%;
-      animation: shimmer 1.2s infinite;
-      border-radius: var(--radius);
-    }
-
-    @keyframes shimmer {
-      from { background-position: 200% 0; }
-      to   { background-position: -200% 0; }
-    }
-
-    .skeleton-card {
-      height: 90px;
-      width: 100%;
-    }
-
-    /* ── Responsive ── */
-    @media (max-width: 640px) {
-      :root { --sidebar-w: 200px; }
-
-      #topbar .logo { font-size: 17px; }
-
-      #mcp-url { max-width: 200px; }
-
-      #add-form { flex-direction: column; align-items: stretch; }
-    }
-
-    @media (max-width: 480px) {
-      #app {
-        grid-template-columns: 1fr;
-        grid-template-rows: var(--topbar-h) 1fr;
-      }
-
-      #sidebar {
-        display: none;
-      }
-
-      #topbar .logo { font-size: 17px; }
-    }
-
-    /* ── Dashboard ── */
-    #dashboard-view {
-      flex: 1;
-      overflow-y: auto;
-      padding: 20px 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .dash-section {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 16px;
-    }
-
-    .dash-section-title {
-      font-size: 13px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      color: var(--text-faint);
-      margin-bottom: 12px;
-    }
-
-    .dash-section-title .dash-hint {
-      font-weight: 400;
-      text-transform: none;
-      letter-spacing: 0;
-    }
-
-    .dash-cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 12px;
-    }
-
-    .dash-cards-vert {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .dash-card {
-      background: var(--bg-mid);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 14px 16px;
-    }
-
-    .dash-card-label {
-      font-size: 13px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: var(--text-faint);
-      margin-bottom: 4px;
-    }
-
-    .dash-card-value {
-      font-size: 16px;
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-      color: var(--text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .dash-big { font-size: 28px; font-weight: 700; }
-
-    .dash-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
-
-    @media (max-width: 800px) {
-      .dash-row { grid-template-columns: 1fr; }
-    }
-
-    .dash-flex { display: flex; flex-direction: column; }
-
-    .dash-stat-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 6px 0;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .dash-stat-row:last-child { border-bottom: none; }
-
-    .dash-stat-label {
-      font-size: 15px;
-      color: var(--text-dim);
-    }
-
-    .dash-stat-value {
-      font-size: 15px;
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-      color: var(--text);
-      font-weight: 600;
-    }
-
-    .dash-perf-empty {
-      font-size: 15px;
-      color: var(--text-faint);
-      padding: 8px 0;
-    }
-
-    .dash-perf-empty code {
-      background: var(--bg-mid);
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 14px;
-    }
-
-    /* Latency chart panels */
-    .dash-perf-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 12px;
-    }
-
-    .dash-chart-panel {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 12px 14px;
-    }
-
-    .dash-chart-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
       margin-bottom: 8px;
     }
 
-    .dash-chart-title {
-      font-size: 13px;
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-      color: var(--text-dim);
-      font-weight: 600;
+    .mem-footer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
     }
 
-    .dash-chart-value {
-      font-size: 18px;
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    .score-badge {
+      font-size: 11px;
       font-weight: 700;
-      color: var(--text);
+      border-radius: 3px;
+      padding: 1px 6px;
     }
 
-    .dash-chart-value.ok   { color: var(--score-ok); }
-    .dash-chart-value.warn { color: var(--score-mid); }
-    .dash-chart-value.bad  { color: var(--score-low); }
+    .score-high { background: rgba(74,222,128,0.12); color: var(--green); }
+    .score-mid  { background: rgba(250,204,21,0.12); color: var(--yellow); }
+    .score-low  { background: rgba(239,68,68,0.12);  color: var(--red); }
 
-    .dash-chart-sub {
-      font-size: 12px;
-      color: var(--text-faint);
-      margin-top: 2px;
+    .mem-user {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--faint);
+      background: var(--elevated);
+      border-radius: 3px;
+      padding: 1px 6px;
     }
 
-    .dash-chart-canvas {
-      width: 100%;
-      height: 80px;
-      display: block;
+    .mem-time {
+      font-size: 11px;
+      color: var(--faint);
     }
 
-    /* Score distribution bars */
-    .dash-dist-row {
+    .mem-footer .spacer { flex: 1; }
+
+    .mem-del-btn {
+      background: none;
+      border: none;
+      color: var(--faint);
+      cursor: pointer;
+      font-size: 13px;
+      padding: 2px 5px;
+      border-radius: 3px;
+      transition: color 0.12s, background 0.12s;
+    }
+
+    .mem-del-btn:hover { color: var(--red); background: rgba(239,68,68,0.1); }
+
+    /* ════════════════════════════════════════════════
+       DIAGNOSTICS TAB
+    ════════════════════════════════════════════════ */
+    #diagnostics-panel {
+      overflow-y: auto;
+      padding: 20px;
+      gap: 14px;
+    }
+
+    .diag-grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .diag-grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+    }
+
+    .diag-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 14px;
+    }
+
+    .diag-card-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin-bottom: 10px;
+    }
+
+    .dist-bar-row {
       display: flex;
       align-items: center;
       gap: 8px;
       margin-bottom: 6px;
     }
 
-    .dash-dist-row:last-child { margin-bottom: 0; }
+    .dist-bar-row:last-child { margin-bottom: 0; }
 
-    .dash-dist-label {
-      font-size: 13px;
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-      color: var(--text-faint);
-      width: 55px;
+    .dist-label {
+      font-size: 11px;
+      color: var(--faint);
+      width: 58px;
       flex-shrink: 0;
       text-align: right;
     }
 
-    .dash-dist-bar-wrap {
+    .dist-track {
       flex: 1;
-      height: 18px;
+      height: 14px;
       background: var(--bg);
-      border-radius: 3px;
+      border-radius: 2px;
       overflow: hidden;
     }
 
-    .dash-dist-bar {
+    .dist-fill {
       height: 100%;
-      border-radius: 3px;
+      border-radius: 2px;
       transition: width 0.4s ease;
-      min-width: 1px;
     }
 
-    .dash-dist-count {
-      font-size: 13px;
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-      color: var(--text-dim);
-      width: 45px;
-      flex-shrink: 0;
+    .dist-count {
+      font-size: 11px;
+      color: var(--dim);
+      min-width: 38px;
       text-align: right;
     }
 
-    /* Error list */
-    .dash-error-item {
-      font-size: 14px;
-      padding: 6px 0;
-      border-bottom: 1px solid var(--border);
-      display: flex;
+    .acc-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
       gap: 8px;
     }
 
-    .dash-error-item:last-child { border-bottom: none; }
-
-    .dash-error-time {
-      color: var(--text-faint);
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-      white-space: nowrap;
-      flex-shrink: 0;
+    .acc-cell {
+      background: var(--elevated);
+      border-radius: 4px;
+      padding: 10px;
     }
 
-    .dash-error-op {
-      color: var(--danger);
+    .acc-cell-label {
+      font-size: 10px;
       font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin-bottom: 4px;
+    }
+
+    .acc-cell-val {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .recent-err-item {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+
+    .recent-err-item:last-child { border-bottom: none; }
+
+    .re-time { color: var(--faint); flex-shrink: 0; }
+    .re-type { padding: 1px 5px; border-radius: 3px; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+    .re-msg  { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .ops-count-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+    .ops-count-bar:last-child { border-bottom: none; }
+    .ops-count-label { color: var(--dim); width: 100px; flex-shrink: 0; }
+    .ops-count-track { flex: 1; height: 10px; background: var(--bg); border-radius: 2px; overflow: hidden; }
+    .ops-count-fill { height: 100%; border-radius: 2px; }
+    .ops-count-val { color: var(--faint); min-width: 42px; text-align: right; }
+
+    /* ════════════════════════════════════════════════
+       CONFIG TAB
+    ════════════════════════════════════════════════ */
+    #config-panel {
+      overflow-y: auto;
+      padding: 20px;
+      gap: 14px;
+    }
+
+    .cfg-grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .cfg-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 14px;
+    }
+
+    .cfg-card-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin-bottom: 12px;
+    }
+
+    .conn-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .conn-row:last-child { border-bottom: none; }
+
+    .conn-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--faint);
       flex-shrink: 0;
     }
 
-    .dash-error-msg {
-      color: var(--text-dim);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+    .conn-dot.ok { background: var(--green); box-shadow: var(--green-glow); }
+    .conn-dot.err { background: var(--red); }
+
+    .conn-name { font-size: 13px; color: var(--dim); flex: 1; }
+    .conn-status { font-size: 12px; color: var(--faint); }
+
+    .kv-table {
+      width: 100%;
+      border-collapse: collapse;
     }
 
-    .dash-val-ok { color: var(--score-ok); }
-    .dash-val-warn { color: var(--score-mid); }
-    .dash-val-bad { color: var(--danger); }
+    .kv-table tr {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .kv-table tr:last-child { border-bottom: none; }
+
+    .kv-table td {
+      padding: 6px 8px;
+      font-size: 12px;
+      vertical-align: top;
+    }
+
+    .kv-key {
+      color: var(--faint);
+      white-space: nowrap;
+      font-weight: 600;
+      width: 40%;
+    }
+
+    .kv-val {
+      color: var(--dim);
+      word-break: break-all;
+    }
+
+    .kv-masked { color: var(--faint); font-style: italic; }
+
+    .auth-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 10px;
+      margin-right: 4px;
+    }
+
+    .auth-on  { background: rgba(74,222,128,0.15); color: var(--green); }
+    .auth-off { background: rgba(86,90,126,0.2);   color: var(--faint); }
+
+    @media (max-width: 900px) {
+      .stat-row { grid-template-columns: repeat(3, 1fr); }
+      .overview-mid { grid-template-columns: 1fr; }
+      .overview-bottom { grid-template-columns: 1fr 1fr; }
+      .diag-grid-2 { grid-template-columns: 1fr; }
+      .diag-grid-3 { grid-template-columns: 1fr 1fr; }
+      .cfg-grid-2 { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      :root { --sidebar-w: 200px; }
+      .stat-row { grid-template-columns: repeat(2, 1fr); }
+      .overview-bottom { grid-template-columns: 1fr; }
+      .proj-mini-stats { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 480px) {
+      #app { grid-template-columns: 1fr; }
+      #sidebar { display: none; }
+    }
   </style>
 </head>
 <body>
-
 <div id="app">
 
-  <!-- Top bar -->
+  <!-- Topbar -->
   <header id="topbar">
-    <div class="logo" id="logo-home" style="cursor:pointer" title="Dashboard">
-      mem<span>-</span>zero
+    <div id="logo-area" title="Overview">
+      <span class="logo-mem">mem</span><span class="logo-dash">-zero</span><span class="logo-cursor"></span>
     </div>
 
-    <div id="search-wrap">
-      <input id="search-input" type="text" placeholder="Search memories… (Enter to run)" autocomplete="off" spellcheck="false" />
-      <button id="search-clear" title="Clear search" aria-label="Clear search">&#x2715;</button>
-    </div>
+    <nav id="tab-nav">
+      <button class="tab-btn active" data-tab="overview">overview</button>
+      <button class="tab-btn" data-tab="projects">projects</button>
+      <button class="tab-btn" data-tab="diagnostics">diagnostics</button>
+      <button class="tab-btn" data-tab="config">config</button>
+    </nav>
 
-    <div id="topbar-status">
-      <span class="health-dot" id="health-dot"></span>
-      <span id="status-text">connecting…</span>
-      <span id="version-text" style="color:var(--text-faint); font-family:'SF Mono','Fira Code','Consolas',monospace;"></span>
+    <div id="topbar-right">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">connecting</span>
+      <span id="version-badge" style="display:none"></span>
     </div>
   </header>
 
   <!-- Sidebar -->
   <nav id="sidebar">
     <div id="sidebar-header">
-      Projects
-      <button id="refresh-btn" title="Refresh projects" aria-label="Refresh projects">&#x21BB;</button>
+      <span class="sidebar-label">Projects</span>
+      <button id="sidebar-refresh" title="Refresh">&#x21BB;</button>
     </div>
-    <div id="project-list">
-      <!-- injected by JS -->
-    </div>
+    <div id="project-list"><!-- injected --></div>
     <div id="sidebar-footer">
-      <div class="footer-row">
-        <span class="footer-label">Backend</span>
-        <span class="footer-value" id="footer-backend">—</span>
+      <div class="sf-row">
+        <span class="sf-key">Backend</span>
+        <span class="sf-val" id="sf-backend">—</span>
       </div>
-      <div class="footer-row">
-        <span class="footer-label">Model</span>
-        <span class="footer-value" id="footer-model">—</span>
+      <div class="sf-row">
+        <span class="sf-key">Model</span>
+        <span class="sf-val" id="sf-model">—</span>
       </div>
-      <div class="footer-row">
-        <span class="footer-label">Dims</span>
-        <span class="footer-value" id="footer-dims">—</span>
+      <div class="sf-row">
+        <span class="sf-key">Dims</span>
+        <span class="sf-val" id="sf-dims">—</span>
       </div>
     </div>
   </nav>
 
   <!-- Main -->
   <main id="main">
-    <div id="dashboard-view">
-      <div class="dash-section">
-        <div class="dash-section-title">System</div>
-        <div class="dash-cards">
-          <div class="dash-card">
-            <div class="dash-card-label">Status</div>
-            <div class="dash-card-value" id="dash-health">—</div>
+
+    <!-- ── Overview ── -->
+    <div id="overview-panel" class="tab-panel active" style="display:flex">
+      <div class="stat-row">
+        <div class="stat-block green">
+          <div class="stat-label">Memories</div>
+          <div class="stat-value green" id="ov-memories">—</div>
+        </div>
+        <div class="stat-block blue">
+          <div class="stat-label">Searches</div>
+          <div class="stat-value blue" id="ov-searches">—</div>
+        </div>
+        <div class="stat-block cyan">
+          <div class="stat-label">Extractions</div>
+          <div class="stat-value cyan" id="ov-extractions">—</div>
+        </div>
+        <div class="stat-block yellow">
+          <div class="stat-label">Dedup Hits</div>
+          <div class="stat-value yellow" id="ov-dedup">—</div>
+        </div>
+        <div class="stat-block orange">
+          <div class="stat-label">Uptime</div>
+          <div class="stat-value orange" id="ov-uptime">—</div>
+        </div>
+      </div>
+
+      <div class="overview-mid">
+        <div class="ov-card">
+          <div class="ov-card-title">Latency — add_memory &amp; search_memory</div>
+          <div class="chart-wrap">
+            <canvas id="ov-chart"></canvas>
           </div>
-          <div class="dash-card">
-            <div class="dash-card-label">Uptime</div>
-            <div class="dash-card-value" id="dash-uptime">—</div>
-          </div>
-          <div class="dash-card">
-            <div class="dash-card-label">Backend</div>
-            <div class="dash-card-value" id="dash-backend">—</div>
-          </div>
-          <div class="dash-card">
-            <div class="dash-card-label">Model</div>
-            <div class="dash-card-value" id="dash-model">—</div>
+        </div>
+        <div class="ov-card">
+          <div class="ov-card-title">Recent Operations</div>
+          <div class="ops-log" id="ov-ops-log">
+            <div style="color:var(--faint);font-size:12px">Waiting for data…</div>
           </div>
         </div>
       </div>
 
-      <div class="dash-section">
-        <div class="dash-section-title">Usage</div>
-        <div class="dash-cards">
-          <div class="dash-card">
-            <div class="dash-card-label">Projects</div>
-            <div class="dash-card-value dash-big" id="dash-projects">—</div>
+      <div class="overview-bottom">
+        <div class="ov-card">
+          <div class="ov-card-title">Percentiles (ms)</div>
+          <table class="pct-table" id="ov-pct-table">
+            <thead>
+              <tr>
+                <th>Operation</th>
+                <th>p50</th>
+                <th>p95</th>
+                <th>p99</th>
+                <th>max</th>
+              </tr>
+            </thead>
+            <tbody id="ov-pct-body">
+              <tr><td colspan="5" style="color:var(--faint);padding:10px 6px">No data</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="ov-card">
+          <div class="ov-card-title">Collections</div>
+          <div id="ov-collections">
+            <div class="empty" style="padding:20px">No projects</div>
           </div>
-          <div class="dash-card">
-            <div class="dash-card-label">Memories</div>
-            <div class="dash-card-value dash-big" id="dash-memories">—</div>
-          </div>
-          <div class="dash-card">
-            <div class="dash-card-label">Operations</div>
-            <div class="dash-card-value dash-big" id="dash-ops">—</div>
-          </div>
-          <div class="dash-card">
-            <div class="dash-card-label">Ops / Day</div>
-            <div class="dash-card-value dash-big" id="dash-ops-day">—</div>
+        </div>
+        <div class="ov-card">
+          <div class="ov-card-title">Error Counters</div>
+          <div id="ov-errors">
+            <div style="color:var(--faint);font-size:12px">No data</div>
           </div>
         </div>
       </div>
 
-      <div class="dash-section">
-        <div class="dash-section-title">Performance</div>
-        <div class="dash-perf-grid" id="dash-perf">
-          <div class="dash-perf-empty">No latency data</div>
-        </div>
-      </div>
-
-      <div class="dash-row">
-        <div class="dash-section dash-flex">
-          <div class="dash-section-title">Accuracy</div>
-          <div class="dash-cards dash-cards-vert">
-            <div class="dash-stat-row">
-              <span class="dash-stat-label">Dedup effectiveness</span>
-              <span class="dash-stat-value" id="dash-dedup">—</span>
-            </div>
-            <div class="dash-stat-row">
-              <span class="dash-stat-label">Extraction failure rate</span>
-              <span class="dash-stat-value" id="dash-extract-fail">—</span>
-            </div>
-            <div class="dash-stat-row">
-              <span class="dash-stat-label">Avg search score</span>
-              <span class="dash-stat-value" id="dash-avg-score">—</span>
-            </div>
-            <div class="dash-stat-row">
-              <span class="dash-stat-label">Facts stored</span>
-              <span class="dash-stat-value" id="dash-facts">—</span>
-            </div>
-            <div class="dash-stat-row">
-              <span class="dash-stat-label">Backend fallbacks</span>
-              <span class="dash-stat-value" id="dash-fallbacks">—</span>
-            </div>
+      <div id="ov-diag-disabled" style="display:none">
+        <div class="ov-card">
+          <div style="font-size:12px;color:var(--faint)">
+            Diagnostics disabled. Enable with <span style="color:var(--cyan)">DIAGNOSTICS_ENABLED=true</span> for performance and accuracy metrics.
           </div>
         </div>
-
-      <div class="dash-row">
-        <div class="dash-section dash-flex">
-          <div class="dash-section-title">Score Distribution</div>
-          <div class="dash-score-dist" id="dash-score-dist">
-            <div class="dash-perf-empty">No search data</div>
-          </div>
-        </div>
-        <div class="dash-section dash-flex">
-          <div class="dash-section-title">Recent Errors</div>
-          <div class="dash-errors" id="dash-errors">
-            <div class="dash-perf-empty">No errors</div>
-          </div>
-        </div>
-      </div>
-
-      <div id="dash-disabled-notice" style="display:none">
-        <div class="dash-perf-empty">Enable diagnostics for performance and accuracy metrics: <code>DIAGNOSTICS_ENABLED=true</code></div>
       </div>
     </div>
 
-    <div id="project-view" style="display:none; flex:1; flex-direction:column; overflow:hidden;">
+    <!-- ── Projects ── -->
+    <div id="projects-panel" class="tab-panel">
 
-      <div id="content-header">
-        <div class="project-title" id="project-title"></div>
-        <div id="mcp-url-row">
-          <span class="mcp-label">MCP URL</span>
-          <span id="mcp-url" title="Click to copy"></span>
-          <span style="font-size:12px; color:var(--text-faint)">user:</span>
-          <input id="mcp-user-input" type="text" value="default" placeholder="user_id" style="
-            font-size:12px;
-            font-family:'SF Mono','Fira Code','Consolas',monospace;
-            background:var(--bg-card);
-            border:1px solid var(--border);
-            border-radius:4px;
-            color:var(--text-dim);
-            outline:none;
-            padding:3px 6px;
-            width:90px;
-            transition:border-color var(--trans);
-          " />
+      <!-- Grid of cards -->
+      <div id="proj-grid-view" style="display:flex;flex-direction:column;flex:1">
+        <div class="section-head">All Projects</div>
+        <div style="flex:1;overflow-y:auto;padding:16px 20px">
+          <div class="proj-cards-grid" id="proj-cards-grid">
+            <div class="empty">No projects found.</div>
+          </div>
         </div>
       </div>
 
-      <div class="action-bar">
-        <span id="memory-count-label" style="font-size:13px; color:var(--text-faint);"></span>
-        <div class="spacer"></div>
-        <button class="btn btn-primary btn-sm" id="consolidate-btn" title="Merge similar memory fragments into clean summaries">Consolidate</button>
-        <button class="btn btn-danger btn-sm" id="delete-all-btn" style="margin-left:8px;">Delete All</button>
-        <button class="btn btn-danger btn-sm" id="delete-project-btn" style="margin-left:8px; opacity:0.75;" title="Delete the entire project and all its memories">Delete Project</button>
-      </div>
+      <!-- Detail view -->
+      <div id="proj-detail-view">
+        <div class="proj-detail-header">
+          <div class="proj-detail-title">
+            <button class="back-btn" id="proj-back-btn">&#x2190; back</button>
+            <span class="proj-detail-slug" id="proj-detail-slug"></span>
+          </div>
+          <div class="proj-mini-stats">
+            <div class="mini-stat">
+              <div class="mini-stat-label">Memories</div>
+              <div class="mini-stat-val" id="pms-count">—</div>
+            </div>
+            <div class="mini-stat">
+              <div class="mini-stat-label">Last Active</div>
+              <div class="mini-stat-val" id="pms-active" style="font-size:13px">—</div>
+            </div>
+            <div class="mini-stat">
+              <div class="mini-stat-label">Avg Score</div>
+              <div class="mini-stat-val" id="pms-score">—</div>
+            </div>
+            <div class="mini-stat">
+              <div class="mini-stat-label">Dedup Rate</div>
+              <div class="mini-stat-val" id="pms-dedup">—</div>
+            </div>
+          </div>
+          <div class="mcp-row">
+            <span class="mcp-label">MCP URL</span>
+            <span class="mcp-url-box" id="mcp-url-display" title="Click to copy"></span>
+            <span style="font-size:11px;color:var(--faint)">user:</span>
+            <input class="mcp-user-input" id="mcp-user-input" type="text" value="default" placeholder="user_id" />
+          </div>
+        </div>
 
-      <div id="add-section">
-        <div class="section-label">Add Memory</div>
-        <div id="add-form">
-          <textarea id="add-text" placeholder="Paste raw text, facts, notes… the LLM will extract memories from it." rows="2"></textarea>
-          <button class="btn btn-primary" id="add-btn">Add</button>
+        <div class="proj-action-bar">
+          <button class="btn btn-cyan btn-sm" id="proj-consolidate-btn">Consolidate</button>
+          <button class="btn btn-orange btn-sm" id="proj-reembed-btn">Re-embed</button>
+          <button class="btn btn-green btn-sm" id="proj-cleanup-btn">Cleanup</button>
+          <div class="spacer"></div>
+          <button class="btn btn-ghost btn-sm" id="proj-delete-all-btn">Delete All</button>
+          <button class="btn btn-danger btn-sm" id="proj-delete-project-btn">Delete Project</button>
+        </div>
+
+        <div class="proj-search-bar">
+          <input class="inp" id="proj-search-input" type="text" placeholder="Search memories… (Enter to search)" autocomplete="off" spellcheck="false" />
+          <button class="btn btn-ghost btn-sm" id="proj-search-clear">Clear</button>
+        </div>
+
+        <div class="proj-add-area">
+          <div class="proj-add-label">Add Memory</div>
+          <div class="proj-add-form">
+            <textarea id="proj-add-text" placeholder="Paste raw text or facts — the LLM will extract memories from it." rows="2"></textarea>
+            <button class="btn btn-primary btn-sm" id="proj-add-btn">Add</button>
+          </div>
+        </div>
+
+        <div id="memory-list-area">
+          <div class="mode-label" id="mem-mode-label"></div>
+          <div id="mem-list"><!-- injected --></div>
         </div>
       </div>
-
-      <div id="memories-scroll">
-        <div id="mode-label"></div>
-        <div class="memory-list" id="memory-list"></div>
-      </div>
-
     </div>
+
+    <!-- ── Diagnostics ── -->
+    <div id="diagnostics-panel" class="tab-panel" style="display:none">
+      <div id="diag-disabled-msg" style="display:none">
+        <div class="ov-card" style="margin:20px">
+          <div style="font-size:13px;color:var(--faint)">
+            Diagnostics are disabled. Set <span style="color:var(--cyan)">DIAGNOSTICS_ENABLED=true</span> to enable performance and accuracy tracking.
+          </div>
+        </div>
+      </div>
+      <div id="diag-content" style="display:none;flex-direction:column;gap:14px">
+        <div class="diag-grid-2">
+          <div class="diag-card">
+            <div class="diag-card-title">add_memory latency</div>
+            <div class="chart-wrap"><canvas id="diag-chart-add"></canvas></div>
+          </div>
+          <div class="diag-card">
+            <div class="diag-card-title">search_memory latency</div>
+            <div class="chart-wrap"><canvas id="diag-chart-search"></canvas></div>
+          </div>
+        </div>
+        <div class="diag-grid-3">
+          <div class="diag-card">
+            <div class="diag-card-title">Percentiles (ms)</div>
+            <table class="pct-table">
+              <thead>
+                <tr><th>Operation</th><th>p50</th><th>p95</th><th>p99</th><th>max</th></tr>
+              </thead>
+              <tbody id="diag-pct-body">
+                <tr><td colspan="5" style="color:var(--faint);padding:8px">No data</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="diag-card">
+            <div class="diag-card-title">Score Distribution</div>
+            <div id="diag-score-dist"></div>
+          </div>
+          <div class="diag-card">
+            <div class="diag-card-title">Accuracy Metrics</div>
+            <div class="acc-grid" id="diag-acc-grid">
+              <div class="acc-cell"><div class="acc-cell-label">Facts/Input</div><div class="acc-cell-val" id="dacc-facts">—</div></div>
+              <div class="acc-cell"><div class="acc-cell-label">Dedup Rate</div><div class="acc-cell-val" id="dacc-dedup">—</div></div>
+              <div class="acc-cell"><div class="acc-cell-label">Extract Success</div><div class="acc-cell-val" id="dacc-extract">—</div></div>
+              <div class="acc-cell"><div class="acc-cell-label">Avg Relevance</div><div class="acc-cell-val" id="dacc-relevance">—</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="diag-grid-2">
+          <div class="diag-card">
+            <div class="diag-card-title">Error Counters</div>
+            <div id="diag-error-counters"></div>
+          </div>
+          <div class="diag-card">
+            <div class="diag-card-title">Recent Errors</div>
+            <div id="diag-recent-errors">
+              <div style="color:var(--faint);font-size:12px">No errors</div>
+            </div>
+          </div>
+        </div>
+        <div class="diag-card">
+          <div class="diag-card-title">Operation Counts</div>
+          <div id="diag-op-counts"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Config ── -->
+    <div id="config-panel" class="tab-panel" style="display:none;gap:14px">
+      <div class="diag-card">
+        <div class="cfg-card-title">Connection Status</div>
+        <div id="cfg-conn-list">
+          <div class="conn-row">
+            <span class="conn-dot" id="conn-ollama"></span>
+            <span class="conn-name">Ollama</span>
+            <span class="conn-status" id="conn-ollama-status">checking…</span>
+          </div>
+          <div class="conn-row">
+            <span class="conn-dot" id="conn-qdrant"></span>
+            <span class="conn-name">Qdrant</span>
+            <span class="conn-status" id="conn-qdrant-status">checking…</span>
+          </div>
+          <div class="conn-row">
+            <span class="conn-dot" id="conn-bundled"></span>
+            <span class="conn-name">Bundled LLM</span>
+            <span class="conn-status" id="conn-bundled-status">—</span>
+          </div>
+        </div>
+      </div>
+      <div class="cfg-grid-2">
+        <div class="diag-card">
+          <div class="cfg-card-title">Backend Config</div>
+          <div id="cfg-backend-rows"></div>
+        </div>
+        <div class="diag-card">
+          <div class="cfg-card-title">Storage</div>
+          <div id="cfg-storage-rows"></div>
+        </div>
+      </div>
+      <div class="diag-card">
+        <div class="cfg-card-title">Auth</div>
+        <div id="cfg-auth-content" style="font-size:13px;color:var(--dim)">Loading…</div>
+      </div>
+      <div class="diag-card">
+        <div class="cfg-card-title">Environment</div>
+        <table class="kv-table" id="cfg-env-table">
+          <tbody id="cfg-env-body">
+            <tr><td colspan="2" style="color:var(--faint);font-size:12px;padding:8px">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </main>
-
 </div>
 
-<!-- Confirm modal -->
+<!-- Modal -->
 <div id="modal-backdrop">
   <div class="modal">
     <div class="modal-title" id="modal-title">Confirm</div>
     <div class="modal-body" id="modal-body"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost btn-sm" id="modal-cancel">Cancel</button>
-      <button class="btn btn-danger btn-sm" id="modal-confirm">Delete</button>
+      <button class="btn btn-danger btn-sm" id="modal-confirm">Confirm</button>
     </div>
   </div>
 </div>
 
-<!-- Toast container -->
-<div id="toast-container"></div>
+<!-- Toasts -->
+<div id="toast-area"></div>
 
 <script>
 (() => {
   'use strict';
 
-  // ── State ─────────────────────────────────────────────────────────────────
-  const state = {
-    projects: [],        // [{slug, collection, memory_count}]
-    activeSlug: null,    // currently selected project slug
-    memories: [],        // current display list (browse or search results)
-    searchMode: false,   // true when showing search results
-    searchQuery: '',
-    userId: 'default',
-    loading: false,
-    health: null,        // 'ok' | 'err'
+  // ─── Palette for bar charts ────────────────────────────────────────────────
+  const BAR_COLORS = [
+    'rgba(96,165,250,0.7)',
+    'rgba(34,211,238,0.7)',
+    'rgba(74,222,128,0.7)',
+    'rgba(250,204,21,0.7)',
+    'rgba(251,146,60,0.7)',
+    'rgba(167,139,250,0.7)',
+    'rgba(249,168,212,0.6)',
+    'rgba(52,211,153,0.7)',
+  ];
+
+  // ─── State ─────────────────────────────────────────────────────────────────
+  const S = {
+    projects:      [],
+    activeSlug:    null,
+    memories:      [],
+    searchMode:    false,
+    searchQuery:   '',
+    userId:        'default',
+    health:        null,
+    diagData:      null,
+    perfHistory:   {}, // key -> {times, adds, searches}
+    opsLog:        [],  // recent ops for display
+    currentTab:    'overview',
   };
 
-  // ── DOM refs ───────────────────────────────────────────────────────────────
-  const $ = id => document.getElementById(id);
-  const projectList   = $('project-list');
-  const memoryList    = $('memory-list');
-  const dashboardView = $('dashboard-view');
-  const projectView   = $('project-view');
-  const projectTitle  = $('project-title');
-  const mcpUrl        = $('mcp-url');
-  const mcpUserInput  = $('mcp-user-input');
-  const modeLabel     = $('mode-label');
-  const countLabel    = $('memory-count-label');
-  const searchInput   = $('search-input');
-  const searchWrap    = $('search-wrap');
-  const searchClear   = $('search-clear');
-  const addText       = $('add-text');
-  const addBtn        = $('add-btn');
-  const deleteAllBtn     = $('delete-all-btn');
-  const deleteProjectBtn = $('delete-project-btn');
-  const consolidateBtn   = $('consolidate-btn');
-  const refreshBtn    = $('refresh-btn');
-  const healthDot     = $('health-dot');
-  const statusText    = $('status-text');
-  const footerBackend = $('footer-backend');
-  const footerModel   = $('footer-model');
-  const footerDims    = $('footer-dims');
-  const modalBackdrop = $('modal-backdrop');
-  const modalTitle    = $('modal-title');
-  const modalBody     = $('modal-body');
-  const modalCancel   = $('modal-cancel');
-  const modalConfirm  = $('modal-confirm');
-  const toastCont     = $('toast-container');
+  const PERF_MAX = 60;
 
-  // ── Utilities ─────────────────────────────────────────────────────────────
+  // ─── Utilities ─────────────────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
   function relTime(ts) {
-    // ts is Unix epoch seconds (float)
-    const diff = Math.floor(Date.now() / 1000 - ts);
-    if (diff < 5)   return 'just now';
-    if (diff < 60)  return `${diff}s ago`;
-    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
-    if (diff < 86400*7) return `${Math.floor(diff/86400)}d ago`;
+    const d = Math.floor(Date.now() / 1000 - ts);
+    if (d < 5)      return 'just now';
+    if (d < 60)     return d + 's ago';
+    if (d < 3600)   return Math.floor(d/60) + 'm ago';
+    if (d < 86400)  return Math.floor(d/3600) + 'h ago';
+    if (d < 604800) return Math.floor(d/86400) + 'd ago';
     return new Date(ts*1000).toLocaleDateString();
   }
 
-  function scoreClass(score) {
-    if (score === null || score === undefined) return '';
-    if (score >= 0.75) return 'score-high';
-    if (score >= 0.45) return 'score-mid';
+  function fmtUptime(s) {
+    if (!s && s !== 0) return '—';
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (d > 0)  return d + 'd';
+    if (h > 0)  return h + 'h ' + m + 'm';
+    return m + 'm';
+  }
+
+  function fmtMs(ms) {
+    if (ms === null || ms === undefined) return '—';
+    if (ms >= 1000) return (ms/1000).toFixed(1) + 's';
+    return ms.toFixed(0) + 'ms';
+  }
+
+  function fmtN(n) {
+    if (n === null || n === undefined) return '—';
+    return Number(n).toLocaleString();
+  }
+
+  function scoreClass(s) {
+    if (s === null || s === undefined) return '';
+    if (s >= 0.75) return 'score-high';
+    if (s >= 0.45) return 'score-mid';
     return 'score-low';
   }
 
-  function pct(score) {
-    return Math.round(score * 100) + '%';
+  function latClass(ms, threshold) {
+    if (!ms) return '';
+    if (ms <= threshold * 0.6) return 'val-ok';
+    if (ms <= threshold) return 'val-warn';
+    return 'val-bad';
   }
 
-  function esc(str) {
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
-  function toast(msg, type = 'info') {
+  function toast(msg, type='') {
     const el = document.createElement('div');
-    el.className = `toast${type === 'error' ? ' error' : type === 'success' ? ' success' : ''}`;
+    el.className = 'toast' + (type ? ' ' + type : '');
     el.textContent = msg;
-    toastCont.appendChild(el);
+    $('toast-area').appendChild(el);
     setTimeout(() => el.remove(), 3500);
   }
 
-  function confirm(title, body, confirmLabel = 'Delete') {
+  function showConfirm(title, body, confirmLabel='Confirm') {
     return new Promise(resolve => {
-      modalTitle.textContent = title;
-      modalBody.textContent  = body;
-      modalConfirm.textContent = confirmLabel;
-      modalBackdrop.classList.add('open');
-      const cleanup = val => {
-        modalBackdrop.classList.remove('open');
-        modalConfirm.onclick = null;
-        modalCancel.onclick  = null;
-        modalConfirm.textContent = 'Delete';
-        resolve(val);
+      $('modal-title').textContent = title;
+      $('modal-body').textContent  = body;
+      $('modal-confirm').textContent = confirmLabel;
+      $('modal-backdrop').classList.add('open');
+      const finish = v => {
+        $('modal-backdrop').classList.remove('open');
+        $('modal-confirm').onclick = null;
+        $('modal-cancel').onclick  = null;
+        resolve(v);
       };
-      modalConfirm.onclick = () => cleanup(true);
-      modalCancel.onclick  = () => cleanup(false);
+      $('modal-confirm').onclick = () => finish(true);
+      $('modal-cancel').onclick  = () => finish(false);
     });
   }
 
-  function buildMcpUrl(slug, userId) {
-    const host = window.location.host;
-    return `http://${host}/mcp/${slug}/http/${userId}`;
+  function mcpUrl(slug, userId) {
+    return `http://${location.host}/mcp/${slug}/http/${userId}`;
   }
 
-  function copyToClipboard(text) {
+  function copyText(text) {
     navigator.clipboard.writeText(text).then(
-      () => toast('Copied to clipboard', 'success'),
-      () => toast('Could not copy — check browser permissions', 'error')
+      () => toast('Copied to clipboard', 'ok'),
+      () => toast('Copy failed — check permissions', 'err')
     );
   }
 
-  // ── API layer ─────────────────────────────────────────────────────────────
-  async function api(method, path, body) {
+  function modelName(cfg) {
+    return cfg.llm_model || cfg.openai_model
+      || (cfg.bundled_model_path || '').split('/').pop().replace('.gguf','')
+      || '—';
+  }
+
+  // ─── API ────────────────────────────────────────────────────────────────────
+  async function apiFetch(method, path, body) {
     const opts = { method, headers: {} };
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
@@ -1254,461 +1819,835 @@
       try { const j = await res.json(); detail = j.detail || JSON.stringify(j); } catch (_) {}
       throw new Error(detail);
     }
-    // DELETE /memories returns {deleted: N} — still valid JSON
     const ct = res.headers.get('content-type') || '';
     if (ct.includes('application/json')) return res.json();
     return null;
   }
 
   const API = {
-    projects:   () => api('GET', '/api/v1/projects'),
-    memories:   (slug, limit=100) => api('GET', `/api/v1/projects/${slug}/memories?limit=${limit}`),
-    add:        (slug, text, metadata={}) => api('POST', `/api/v1/projects/${slug}/memories`, {text, metadata}),
-    search:     (slug, query, top_k=20) => api('POST', `/api/v1/projects/${slug}/search`, {query, top_k}),
-    deleteOne:  (slug, id) => api('DELETE', `/api/v1/projects/${slug}/memories/${id}`),
-    deleteAll:        (slug) => api('DELETE', `/api/v1/projects/${slug}/memories`),
-    deleteProject:    (slug) => api('DELETE', `/api/v1/projects/${slug}`),
-    consolidate:      (slug, dryRun=false, threshold=0.75) =>
-      api('POST', `/api/v1/projects/${slug}/consolidate?dry_run=${dryRun}&threshold=${threshold}`),
-    health:     () => api('GET', '/health'),
-    config:     () => api('GET', '/debug/config'),
-    diagnostics:() => api('GET', '/api/v1/diagnostics'),
+    projects:      ()             => apiFetch('GET',  '/api/v1/projects'),
+    memories:      (s, lim=100)  => apiFetch('GET',  `/api/v1/projects/${s}/memories?limit=${lim}`),
+    add:           (s, text)     => apiFetch('POST', `/api/v1/projects/${s}/memories`, {text}),
+    search:        (s, q, k=20)  => apiFetch('POST', `/api/v1/projects/${s}/search`, {query:q, top_k:k}),
+    deleteOne:     (s, id)       => apiFetch('DELETE',`/api/v1/projects/${s}/memories/${id}`),
+    deleteAll:     (s)           => apiFetch('DELETE',`/api/v1/projects/${s}/memories`),
+    deleteProject: (s)           => apiFetch('DELETE',`/api/v1/projects/${s}`),
+    consolidate:   (s, dry=false, thr=0.75) =>
+                                    apiFetch('POST', `/api/v1/projects/${s}/consolidate?dry_run=${dry}&threshold=${thr}`),
+    reembed:       (s)           => apiFetch('POST', `/api/v1/projects/${s}/reembed`),
+    cleanup:       (s)           => apiFetch('POST', `/api/v1/projects/${s}/cleanup`),
+    health:        ()            => apiFetch('GET',  '/health'),
+    config:        ()            => apiFetch('GET',  '/debug/config'),
+    diagnostics:   ()            => apiFetch('GET',  '/api/v1/diagnostics'),
   };
 
-  // ── Render helpers ─────────────────────────────────────────────────────────
-  function renderProjectList() {
-    if (!state.projects.length) {
-      projectList.innerHTML = `<div class="empty-state" style="height:80px"><div class="empty-text">No projects yet</div></div>`;
+  // ─── Tab routing ────────────────────────────────────────────────────────────
+  const TABS = ['overview','projects','diagnostics','config'];
+
+  function switchTab(name, pushHash=true) {
+    if (!TABS.includes(name)) name = 'overview';
+    S.currentTab = name;
+    document.querySelectorAll('.tab-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === name);
+    });
+    document.querySelectorAll('.tab-panel').forEach(p => {
+      const active = p.id === name + '-panel';
+      p.classList.toggle('active', active);
+      if (p.id !== 'overview-panel') {
+        p.style.display = active ? 'flex' : 'none';
+      } else {
+        p.style.display = active ? 'flex' : 'none';
+      }
+    });
+    if (pushHash) history.pushState(null, '', '#' + name);
+    if (name === 'diagnostics') renderDiagnostics();
+    if (name === 'config') renderConfig();
+    if (name === 'overview') renderOverview();
+  }
+
+  function readHash() {
+    const h = location.hash.replace('#','');
+    return TABS.includes(h) ? h : 'overview';
+  }
+
+  // ─── Sidebar ────────────────────────────────────────────────────────────────
+  function renderSidebar() {
+    const list = $('project-list');
+    if (!S.projects.length) {
+      list.innerHTML = `<div class="empty" style="padding:24px 16px">No projects</div>`;
       return;
     }
-    projectList.innerHTML = state.projects.map(p => `
-      <div class="project-item${p.slug === state.activeSlug ? ' active' : ''}" data-slug="${esc(p.slug)}">
-        <span class="project-name">${esc(p.slug)}</span>
-        <span class="project-count">${p.memory_count}</span>
+    list.innerHTML = S.projects.map(p => `
+      <div class="proj-item${p.slug === S.activeSlug ? ' active' : ''}" data-slug="${esc(p.slug)}">
+        <span class="proj-tilde">~</span>
+        <span class="proj-name">${esc(p.slug)}</span>
+        <span class="proj-count">${p.memory_count}</span>
       </div>
     `).join('');
   }
 
-  function renderMemoryCard(m) {
-    const hasScore = m.score !== null && m.score !== undefined;
-    const scoreBadge = hasScore
-      ? `<span class="score-badge ${scoreClass(m.score)}">${pct(m.score)}</span>`
-      : '';
-    return `
-      <div class="memory-card" data-id="${esc(m.id)}">
-        <div class="memory-text">${esc(m.text)}</div>
-        <div class="memory-footer">
-          <span class="memory-user">${esc(m.user_id)}</span>
-          ${scoreBadge}
-          <span class="memory-meta">
-            <span title="${new Date(m.created_at*1000).toLocaleString()}">${relTime(m.created_at)}</span>
-          </span>
-          <span class="spacer"></span>
-          <button class="delete-btn" data-id="${esc(m.id)}" title="Delete memory" aria-label="Delete memory">&#x1F5D1;</button>
+  $('project-list').addEventListener('click', e => {
+    const item = e.target.closest('.proj-item');
+    if (!item) return;
+    openProject(item.dataset.slug);
+  });
+
+  $('sidebar-refresh').addEventListener('click', async () => {
+    $('sidebar-refresh').classList.add('spinning');
+    try { await loadProjects(); } finally {
+      $('sidebar-refresh').classList.remove('spinning');
+    }
+  });
+
+  // ─── Projects tab ───────────────────────────────────────────────────────────
+  function renderProjGrid() {
+    const grid = $('proj-cards-grid');
+    if (!S.projects.length) {
+      grid.innerHTML = `<div class="empty">No projects yet.</div>`;
+      return;
+    }
+    grid.innerHTML = S.projects.map(p => {
+      const lastTs = p.last_updated || p.created_at;
+      const badge  = lastTs ? relTime(lastTs) : '';
+      return `
+        <div class="proj-card" data-slug="${esc(p.slug)}">
+          <div class="proj-card-name">${esc(p.slug)}</div>
+          <div class="proj-card-count">${fmtN(p.memory_count)}</div>
+          <div class="proj-card-meta">${p.memory_count === 1 ? 'memory' : 'memories'}</div>
+          ${badge ? `<div class="proj-card-badge">${esc(badge)}</div>` : ''}
         </div>
-      </div>
-    `;
+      `;
+    }).join('');
   }
 
-  function renderMemories() {
-    const list = state.memories;
+  $('proj-cards-grid').addEventListener('click', e => {
+    const card = e.target.closest('.proj-card');
+    if (!card) return;
+    openProject(card.dataset.slug);
+  });
 
-    if (state.loading) {
-      memoryList.innerHTML = [1,2,3].map(() =>
-        `<div class="skeleton skeleton-card"></div>`
-      ).join('');
-      return;
-    }
-
-    if (!list.length) {
-      memoryList.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon">&#x1F4AD;</div>
-          <div class="empty-text">${state.searchMode ? 'No results for this query.' : 'No memories yet. Add one above.'}</div>
-        </div>`;
-      return;
-    }
-
-    memoryList.innerHTML = list.map(renderMemoryCard).join('');
-  }
-
-  function renderModeLabel() {
-    if (!state.activeSlug) return;
-    if (state.searchMode) {
-      modeLabel.innerHTML = `Search results for <strong>"${esc(state.searchQuery)}"</strong> &mdash; ${state.memories.length} found`;
-    } else {
-      modeLabel.innerHTML = '';
-    }
-    countLabel.textContent = state.searchMode
-      ? `${state.memories.length} result${state.memories.length !== 1 ? 's' : ''}`
-      : `${state.memories.length} memor${state.memories.length !== 1 ? 'ies' : 'y'}`;
-  }
-
-  function updateMcpUrl() {
-    if (!state.activeSlug) return;
-    const url = buildMcpUrl(state.activeSlug, state.userId);
-    mcpUrl.textContent = url;
-    mcpUrl.title = 'Click to copy: ' + url;
-  }
-
-  // ── Actions ────────────────────────────────────────────────────────────────
-  async function loadProjects() {
-    refreshBtn.classList.add('spinning');
-    try {
-      state.projects = await API.projects();
-      renderProjectList();
-    } catch(e) {
-      toast('Failed to load projects: ' + e.message, 'error');
-    } finally {
-      refreshBtn.classList.remove('spinning');
-    }
-  }
-
-  async function loadMemories() {
-    if (!state.activeSlug) return;
-    state.loading = true;
-    renderMemories();
-    try {
-      state.memories = await API.memories(state.activeSlug);
-      state.searchMode = false;
-      state.searchQuery = '';
-      searchInput.value = '';
-      searchWrap.classList.remove('has-query');
-    } catch(e) {
-      toast('Failed to load memories: ' + e.message, 'error');
-      state.memories = [];
-    } finally {
-      state.loading = false;
-      renderMemories();
-      renderModeLabel();
-    }
-  }
-
-  async function selectProject(slug) {
-    state.activeSlug = slug;
-    state.memories   = [];
-    state.searchMode = false;
-    dashboardView.style.display = 'none';
-    projectView.style.display = 'flex';
-    projectTitle.textContent = slug;
-    updateMcpUrl();
-    renderProjectList();
+  async function openProject(slug) {
+    S.activeSlug = slug;
+    S.searchMode = false;
+    S.searchQuery = '';
+    S.memories = [];
+    switchTab('projects', true);
+    $('proj-grid-view').style.display = 'none';
+    $('proj-detail-view').style.display = 'flex';
+    $('proj-detail-slug').textContent = slug;
+    $('proj-search-input').value = '';
+    updateMcpDisplay();
+    renderSidebar();
     await loadMemories();
+    updateMiniStats();
   }
 
-  async function runSearch(query) {
-    if (!state.activeSlug || !query.trim()) return;
-    state.loading = true;
-    state.searchMode  = true;
-    state.searchQuery = query.trim();
-    renderMemories();
-    try {
-      state.memories = await API.search(state.activeSlug, state.searchQuery);
-    } catch(e) {
-      toast('Search failed: ' + e.message, 'error');
-      state.memories = [];
-    } finally {
-      state.loading = false;
-      renderMemories();
-      renderModeLabel();
+  $('proj-back-btn').addEventListener('click', () => {
+    S.activeSlug = null;
+    $('proj-detail-view').style.display = 'none';
+    $('proj-grid-view').style.display = 'flex';
+    renderSidebar();
+  });
+
+  function updateMcpDisplay() {
+    if (!S.activeSlug) return;
+    const url = mcpUrl(S.activeSlug, S.userId);
+    const box = $('mcp-url-display');
+    box.textContent = url;
+    box.title = 'Click to copy: ' + url;
+  }
+
+  $('mcp-url-display').addEventListener('click', () => {
+    if (S.activeSlug) copyText(mcpUrl(S.activeSlug, S.userId));
+  });
+
+  $('mcp-user-input').addEventListener('input', () => {
+    S.userId = $('mcp-user-input').value.trim() || 'default';
+    updateMcpDisplay();
+  });
+
+  function updateMiniStats() {
+    const proj = S.projects.find(p => p.slug === S.activeSlug);
+    $('pms-count').textContent = proj ? fmtN(proj.memory_count) : '—';
+    const lastTs = proj && (proj.last_updated || proj.created_at);
+    $('pms-active').textContent = lastTs ? relTime(lastTs) : '—';
+    // score and dedup come from diagnostics if available
+    if (S.diagData && S.diagData.accuracy) {
+      const acc = S.diagData.accuracy;
+      const avg = acc.search && acc.search.avg_score;
+      $('pms-score').textContent = avg !== undefined && avg !== null ? avg.toFixed(2) : '—';
+      const de = acc.dedup && acc.dedup.effectiveness;
+      $('pms-dedup').textContent = de || '—';
     }
   }
 
-  async function addMemory() {
-    const text = addText.value.trim();
-    if (!text || !state.activeSlug) return;
-    addBtn.disabled = true;
-    addBtn.textContent = 'Adding…';
+  // ─── Memory list ────────────────────────────────────────────────────────────
+  async function loadMemories() {
+    if (!S.activeSlug) return;
+    const list = $('mem-list');
+    list.innerHTML = [1,2,3].map(() => `<div class="skeleton" style="height:70px;margin-bottom:8px"></div>`).join('');
     try {
-      const res = await API.add(state.activeSlug, text);
-      toast(`Stored ${res.stored} memor${res.stored !== 1 ? 'ies' : 'y'}`, 'success');
-      addText.value = '';
-      await loadMemories();
-      // Update count in sidebar
-      const proj = state.projects.find(p => p.slug === state.activeSlug);
-      if (proj) { proj.memory_count = state.memories.length; renderProjectList(); }
-    } catch(e) {
-      toast('Failed to add memory: ' + e.message, 'error');
-    } finally {
-      addBtn.disabled = false;
-      addBtn.textContent = 'Add';
+      S.memories   = await API.memories(S.activeSlug);
+      S.searchMode = false;
+      S.searchQuery = '';
+    } catch (e) {
+      toast('Failed to load memories: ' + e.message, 'err');
+      S.memories = [];
     }
+    renderMemList();
   }
 
-  async function deleteMemory(id) {
-    if (!state.activeSlug) return;
-    const card = memoryList.querySelector(`[data-id="${id}"]`);
+  function renderMemList() {
+    const list = $('mem-list');
+    const lbl  = $('mem-mode-label');
+    if (S.searchMode) {
+      lbl.innerHTML = `Search results for <strong>${esc(S.searchQuery)}</strong> — ${S.memories.length} found`;
+    } else {
+      lbl.innerHTML = '';
+    }
+    if (!S.memories.length) {
+      list.innerHTML = `<div class="empty">${S.searchMode ? 'No results.' : 'No memories yet.'}</div>`;
+      return;
+    }
+    list.innerHTML = S.memories.map(m => {
+      const hasScore = m.score !== null && m.score !== undefined;
+      return `
+        <div class="mem-card" data-id="${esc(m.id)}">
+          <div class="mem-text">${esc(m.text)}</div>
+          <div class="mem-footer">
+            ${hasScore ? `<span class="score-badge ${scoreClass(m.score)}">${Math.round(m.score*100)}%</span>` : ''}
+            <span class="mem-user">${esc(m.user_id)}</span>
+            <span class="mem-time" title="${new Date(m.created_at*1000).toLocaleString()}">${relTime(m.created_at)}</span>
+            <span class="spacer"></span>
+            <button class="mem-del-btn" data-id="${esc(m.id)}" title="Delete">&#x2715;</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  $('mem-list').addEventListener('click', e => {
+    const btn = e.target.closest('.mem-del-btn');
+    if (!btn) return;
+    deleteOne(btn.dataset.id);
+  });
+
+  async function deleteOne(id) {
+    const card = $('mem-list').querySelector(`[data-id="${id}"]`);
     if (card) card.classList.add('deleting');
     try {
-      await API.deleteOne(state.activeSlug, id);
-      state.memories = state.memories.filter(m => m.id !== id);
-      const proj = state.projects.find(p => p.slug === state.activeSlug);
+      await API.deleteOne(S.activeSlug, id);
+      S.memories = S.memories.filter(m => m.id !== id);
+      const proj = S.projects.find(p => p.slug === S.activeSlug);
       if (proj && proj.memory_count > 0) proj.memory_count--;
-      renderMemories();
-      renderModeLabel();
-      renderProjectList();
-    } catch(e) {
+      renderMemList();
+      renderSidebar();
+      updateMiniStats();
+    } catch (e) {
       if (card) card.classList.remove('deleting');
-      toast('Delete failed: ' + e.message, 'error');
+      toast('Delete failed: ' + e.message, 'err');
     }
   }
 
-  async function deleteAll() {
-    if (!state.activeSlug) return;
-    const ok = await confirm(
-      'Delete all memories?',
-      `This will permanently delete all memories in "${state.activeSlug}". This cannot be undone.`
-    );
-    if (!ok) return;
-    deleteAllBtn.disabled = true;
+  // ─── Project search ─────────────────────────────────────────────────────────
+  $('proj-search-input').addEventListener('keydown', async e => {
+    if (e.key !== 'Enter') return;
+    const q = $('proj-search-input').value.trim();
+    if (!q) {
+      if (S.searchMode) await loadMemories();
+      return;
+    }
+    await runSearch(q);
+  });
+
+  $('proj-search-clear').addEventListener('click', () => {
+    $('proj-search-input').value = '';
+    if (S.searchMode) loadMemories();
+  });
+
+  async function runSearch(q) {
+    if (!S.activeSlug) return;
+    S.searchMode  = true;
+    S.searchQuery = q;
+    const list = $('mem-list');
+    list.innerHTML = `<div class="skeleton" style="height:70px;margin-bottom:8px"></div>`.repeat(3);
     try {
-      const res = await API.deleteAll(state.activeSlug);
-      toast(`Deleted ${res.deleted} memor${res.deleted !== 1 ? 'ies' : 'y'}`, 'success');
-      state.memories = [];
-      const proj = state.projects.find(p => p.slug === state.activeSlug);
-      if (proj) proj.memory_count = 0;
-      renderMemories();
-      renderModeLabel();
-      renderProjectList();
-    } catch(e) {
-      toast('Delete all failed: ' + e.message, 'error');
+      S.memories = await API.search(S.activeSlug, q);
+    } catch (e) {
+      toast('Search failed: ' + e.message, 'err');
+      S.memories = [];
+    }
+    renderMemList();
+  }
+
+  // ─── Add memory ─────────────────────────────────────────────────────────────
+  $('proj-add-btn').addEventListener('click', addMemory);
+  $('proj-add-text').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addMemory();
+  });
+
+  async function addMemory() {
+    const text = $('proj-add-text').value.trim();
+    if (!text || !S.activeSlug) return;
+    const btn = $('proj-add-btn');
+    btn.disabled = true;
+    btn.textContent = 'Adding…';
+    try {
+      const res = await API.add(S.activeSlug, text);
+      toast(`Stored ${res.stored} memor${res.stored !== 1 ? 'ies' : 'y'}`, 'ok');
+      $('proj-add-text').value = '';
+      await loadMemories();
+      const proj = S.projects.find(p => p.slug === S.activeSlug);
+      if (proj) { proj.memory_count = S.memories.length; renderSidebar(); }
+      updateMiniStats();
+    } catch (e) {
+      toast('Failed to add: ' + e.message, 'err');
     } finally {
-      deleteAllBtn.disabled = false;
+      btn.disabled = false;
+      btn.textContent = 'Add';
     }
   }
 
-  async function consolidateMemories() {
-    if (!state.activeSlug) return;
-    consolidateBtn.disabled = true;
-    consolidateBtn.textContent = 'Previewing…';
+  // ─── Project actions ─────────────────────────────────────────────────────────
+  $('proj-consolidate-btn').addEventListener('click', async () => {
+    if (!S.activeSlug) return;
+    const btn = $('proj-consolidate-btn');
+    btn.disabled = true;
+    btn.textContent = 'Previewing…';
     try {
-      const preview = await API.consolidate(state.activeSlug, true);
-      if (!preview.clusters) {
-        toast('No similar memories to consolidate', 'info');
+      const preview = await API.consolidate(S.activeSlug, true);
+      if (!preview || !preview.clusters) {
+        toast('No similar memories to consolidate', 'warn');
         return;
       }
-      const ok = await confirm(
+      const ok = await showConfirm(
         'Consolidate memories?',
-        `Found ${preview.clusters} cluster${preview.clusters !== 1 ? 's' : ''} of similar memories. This will merge related fragments into clean summaries. This cannot be undone.`,
+        `Found ${preview.clusters} cluster${preview.clusters !== 1 ? 's' : ''} of similar memories. Merge into clean summaries? This cannot be undone.`,
         'Consolidate'
       );
       if (!ok) return;
-      consolidateBtn.textContent = 'Consolidating…';
-      const res = await API.consolidate(state.activeSlug, false);
-      toast(`Consolidated: ${res.memories_removed} merged into ${res.memories_created}`, 'success');
+      btn.textContent = 'Consolidating…';
+      const res = await API.consolidate(S.activeSlug, false);
+      toast(`Consolidated: ${res.memories_removed} merged into ${res.memories_created}`, 'ok');
       await loadMemories();
       await loadProjects();
-    } catch(e) {
-      toast('Consolidation failed: ' + e.message, 'error');
+    } catch (e) {
+      toast('Consolidation failed: ' + e.message, 'err');
     } finally {
-      consolidateBtn.disabled = false;
-      consolidateBtn.textContent = 'Consolidate';
+      btn.disabled = false;
+      btn.textContent = 'Consolidate';
     }
-  }
+  });
 
-  async function deleteProject() {
-    if (!state.activeSlug) return;
-    const slug = state.activeSlug;
-    const ok = await confirm(
-      'Delete project?',
-      `This will permanently delete the project "${slug}" and all its memories. This cannot be undone.`
+  $('proj-reembed-btn').addEventListener('click', async () => {
+    if (!S.activeSlug) return;
+    const btn = $('proj-reembed-btn');
+    btn.disabled = true;
+    btn.textContent = 'Re-embedding…';
+    try {
+      const res = await API.reembed(S.activeSlug);
+      toast(`Re-embedded ${res.reembedded ?? ''} memories`, 'ok');
+    } catch (e) {
+      toast('Re-embed failed: ' + e.message, 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Re-embed';
+    }
+  });
+
+  $('proj-cleanup-btn').addEventListener('click', async () => {
+    if (!S.activeSlug) return;
+    const btn = $('proj-cleanup-btn');
+    btn.disabled = true;
+    btn.textContent = 'Cleaning…';
+    try {
+      const res = await API.cleanup(S.activeSlug);
+      toast(`Cleaned ${res.cleaned ?? ''} memories`, 'ok');
+      await loadMemories();
+    } catch (e) {
+      toast('Cleanup failed: ' + e.message, 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Cleanup';
+    }
+  });
+
+  $('proj-delete-all-btn').addEventListener('click', async () => {
+    if (!S.activeSlug) return;
+    const ok = await showConfirm(
+      'Delete all memories?',
+      `Permanently delete all memories in "${S.activeSlug}"? This cannot be undone.`,
+      'Delete All'
     );
     if (!ok) return;
-    deleteProjectBtn.disabled = true;
+    const btn = $('proj-delete-all-btn');
+    btn.disabled = true;
+    try {
+      const res = await API.deleteAll(S.activeSlug);
+      toast(`Deleted ${res.deleted} memor${res.deleted !== 1 ? 'ies' : 'y'}`, 'ok');
+      S.memories = [];
+      const proj = S.projects.find(p => p.slug === S.activeSlug);
+      if (proj) proj.memory_count = 0;
+      renderMemList();
+      renderSidebar();
+      updateMiniStats();
+    } catch (e) {
+      toast('Delete all failed: ' + e.message, 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $('proj-delete-project-btn').addEventListener('click', async () => {
+    if (!S.activeSlug) return;
+    const slug = S.activeSlug;
+    const ok = await showConfirm(
+      'Delete project?',
+      `Permanently delete project "${slug}" and all its memories? This cannot be undone.`,
+      'Delete Project'
+    );
+    if (!ok) return;
+    const btn = $('proj-delete-project-btn');
+    btn.disabled = true;
     try {
       await API.deleteProject(slug);
-      toast(`Project "${slug}" deleted`, 'success');
-      state.projects = state.projects.filter(p => p.slug !== slug);
-      state.activeSlug = null;
-      state.memories   = [];
-      state.searchMode = false;
-      projectView.style.display = 'none';
-      dashboardView.style.display = '';
-      renderProjectList();
-      loadDashboard();
-    } catch(e) {
-      toast('Delete project failed: ' + e.message, 'error');
+      toast(`Project "${slug}" deleted`, 'ok');
+      S.projects   = S.projects.filter(p => p.slug !== slug);
+      S.activeSlug = null;
+      S.memories   = [];
+      $('proj-detail-view').style.display = 'none';
+      $('proj-grid-view').style.display   = 'flex';
+      renderProjGrid();
+      renderSidebar();
+    } catch (e) {
+      toast('Delete project failed: ' + e.message, 'err');
     } finally {
-      deleteProjectBtn.disabled = false;
+      btn.disabled = false;
+    }
+  });
+
+  // ─── Load projects ────────────────────────────────────────────────────────────
+  async function loadProjects() {
+    try {
+      S.projects = await API.projects();
+      renderSidebar();
+      renderProjGrid();
+    } catch (e) {
+      toast('Failed to load projects: ' + e.message, 'err');
     }
   }
 
+  // ─── Health check ─────────────────────────────────────────────────────────────
   async function checkHealth() {
     try {
       const res = await API.health();
-      state.health = 'ok';
-      healthDot.className = 'health-dot ok';
-      statusText.textContent = 'healthy';
-      if (res && res.version) $('version-text').textContent = 'v' + res.version;
-    } catch(_) {
-      state.health = 'err';
-      healthDot.className = 'health-dot err';
-      statusText.textContent = 'unreachable';
+      S.health = 'ok';
+      $('status-dot').className  = 'status-dot ok';
+      $('status-text').textContent = 'operational';
+      if (res && res.version) {
+        const badge = $('version-badge');
+        badge.textContent = 'v' + res.version;
+        badge.style.display = '';
+      }
+    } catch (_) {
+      S.health = 'err';
+      $('status-dot').className  = 'status-dot err';
+      $('status-text').textContent = 'unreachable';
     }
   }
+
+  // ─── Config load ─────────────────────────────────────────────────────────────
+  let cfgCache = null;
 
   async function loadConfig() {
     try {
-      const cfg = await API.config();
-      footerBackend.textContent = cfg.llm_backend         || '—';
-      footerModel.textContent   = cfg.llm_model || cfg.openai_model || cfg.bundled_model_path?.split('/').pop()?.replace('.gguf','') || '—';
-      footerDims.textContent    = cfg.embedding_dimensions || '—';
-    } catch(_) {}
+      cfgCache = await API.config();
+      $('sf-backend').textContent = cfgCache.llm_backend || '—';
+      $('sf-model').textContent   = modelName(cfgCache);
+      $('sf-dims').textContent    = cfgCache.embedding_dimensions || '—';
+    } catch (_) {}
   }
 
-  // ── Dashboard ─────────────────────────────────────────────────────────────
-  function fmtUptime(s) {
-    if (!s) return '—';
-    const d = Math.floor(s / 86400);
-    const h = Math.floor((s % 86400) / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    if (d > 0) return `${d}d ${h}h`;
-    if (h > 0) return `${h}h ${m}m`;
-    return `${m}m`;
-  }
-
-  function fmtNum(n) {
-    if (n === null || n === undefined) return '—';
-    return Number(n).toLocaleString();
-  }
-
-  function showDashboard() {
-    state.activeSlug = null;
-    state.memories = [];
-    state.searchMode = false;
-    projectView.style.display = 'none';
-    dashboardView.style.display = '';
-    renderProjectList();
-    loadDashboard();
-  }
-
-  async function loadDashboard() {
-    const totalMem = state.projects.reduce((s, p) => s + p.memory_count, 0);
-    $('dash-projects').textContent = fmtNum(state.projects.length);
-    $('dash-memories').textContent = fmtNum(totalMem);
-    $('dash-health').textContent = state.health === 'ok' ? 'Healthy' : 'Unreachable';
-    $('dash-health').className = 'dash-card-value ' + (state.health === 'ok' ? 'dash-val-ok' : 'dash-val-bad');
-
-    try {
-      const cfg = await API.config();
-      $('dash-backend').textContent = cfg.llm_backend || '—';
-      $('dash-model').textContent = cfg.llm_model || cfg.openai_model || cfg.bundled_model_path?.split('/').pop()?.replace('.gguf','') || '—';
-    } catch(_) {}
-
-    try {
-      const d = await API.diagnostics();
-      $('dash-disabled-notice').style.display = 'none';
-      $('dash-uptime').textContent = fmtUptime(d.uptime_seconds);
-      $('dash-ops').textContent = fmtNum(d.usage?.total_operations);
-      $('dash-ops-day').textContent = fmtNum(d.usage?.operations_per_day);
-      $('dash-facts').textContent = fmtNum(d.usage?.total_facts_stored);
-
-      const acc = d.accuracy || {};
-      $('dash-dedup').textContent = acc.dedup?.effectiveness || '—';
-      $('dash-extract-fail').textContent = acc.extraction?.failure_rate || '—';
-      const avgScore = acc.search?.avg_score;
-      const scoreEl = $('dash-avg-score');
-      scoreEl.textContent = avgScore !== null && avgScore !== undefined ? avgScore.toFixed(3) : '—';
-      if (avgScore !== null && avgScore !== undefined) {
-        scoreEl.className = 'dash-stat-value ' + (avgScore >= 0.6 ? 'dash-val-ok' : avgScore >= 0.4 ? 'dash-val-warn' : 'dash-val-bad');
-      }
-
-      const rel = d.reliability || {};
-      const fbEl = $('dash-fallbacks');
-      const fb = rel.backend_fallback_activations || 0;
-      fbEl.textContent = fmtNum(fb);
-      if (fb > 0) fbEl.className = 'dash-stat-value dash-val-warn';
-
-      renderPerfCharts(d.performance || {});
-      renderScoreDist(acc.search?.score_distribution || {});
-      renderErrors(rel.recent_errors || []);
-    } catch(e) {
-      $('dash-disabled-notice').style.display = '';
-      $('dash-uptime').textContent = '—';
-      $('dash-ops').textContent = '—';
-      $('dash-ops-day').textContent = '—';
-    }
-  }
-
-  const perfHistory = {};
-  const PERF_MAX_POINTS = 60;
+  // ─── Diagnostics ─────────────────────────────────────────────────────────────
   const PERF_THRESHOLDS = {
-    add_memory: 20000, search: 1000, embed: 1000,
-    generate: 8000, dedup: 5000, reembed: 2000,
-    _default: 5000,
+    add_memory: 20000, search: 1000, search_memory: 1000,
+    embed: 1000, generate: 8000, dedup: 5000, reembed: 2000, _default: 5000,
   };
 
-  function perfThreshold(key) {
-    return PERF_THRESHOLDS[key] || PERF_THRESHOLDS._default;
-  }
+  function perfThresh(k) { return PERF_THRESHOLDS[k] || PERF_THRESHOLDS._default; }
 
-  function recordPerfSnapshot(perf) {
+  function pushPerfHistory(perf) {
     const now = Date.now();
     for (const [key, data] of Object.entries(perf)) {
-      if (!perfHistory[key]) perfHistory[key] = { times: [], avgs: [], p95s: [], counts: [] };
-      const h = perfHistory[key];
+      if (!S.perfHistory[key]) S.perfHistory[key] = { times:[], avgs:[], p95s:[] };
+      const h = S.perfHistory[key];
       h.times.push(now);
       h.avgs.push(data.avg_ms || 0);
-      h.p95s.push(data.p95 || 0);
-      h.counts.push(data.count || 0);
-      while (h.times.length > PERF_MAX_POINTS) {
-        h.times.shift(); h.avgs.shift(); h.p95s.shift(); h.counts.shift();
-      }
+      h.p95s.push(data.p95   || 0);
+      while (h.times.length > PERF_MAX) { h.times.shift(); h.avgs.shift(); h.p95s.shift(); }
     }
   }
 
-  function renderPerfCharts(perf) {
-    const container = $('dash-perf');
-    const keys = Object.keys(perf);
-    if (!keys.length) {
-      container.innerHTML = '<div class="dash-perf-empty">No latency data</div>';
+  async function loadDiagnostics() {
+    try {
+      S.diagData = await API.diagnostics();
+      if (S.diagData && S.diagData.performance) {
+        pushPerfHistory(S.diagData.performance);
+      }
+      // build ops log entries
+      if (S.diagData && S.diagData.usage) {
+        const u = S.diagData.usage;
+        const now = Date.now() / 1000;
+        const entries = [];
+        if (u.add_operations)    entries.push({ tag:'ADD',   proj:'(global)', detail: fmtN(u.add_operations) + ' adds', ts: now });
+        if (u.search_operations) entries.push({ tag:'FIND',  proj:'(global)', detail: fmtN(u.search_operations) + ' searches', ts: now });
+        if (u.dedup_hits)        entries.push({ tag:'DEDUP', proj:'(global)', detail: fmtN(u.dedup_hits) + ' hits', ts: now });
+        if (u.total_embeddings)  entries.push({ tag:'EMBED', proj:'(global)', detail: fmtN(u.total_embeddings) + ' embeddings', ts: now });
+        S.opsLog = entries.slice(0, 20);
+      }
+    } catch (e) {
+      if (e.message && e.message.includes('404')) S.diagData = null;
+    }
+  }
+
+  // ─── Overview rendering ───────────────────────────────────────────────────────
+  async function renderOverview() {
+    await loadDiagnostics();
+    const totalMem = S.projects.reduce((s, p) => s + p.memory_count, 0);
+    $('ov-memories').textContent = fmtN(totalMem);
+
+    if (S.diagData) {
+      $('ov-diag-disabled').style.display = 'none';
+      const u = S.diagData.usage || {};
+      $('ov-searches').textContent    = fmtN(u.search_operations);
+      $('ov-extractions').textContent = fmtN(u.total_facts_stored);
+      $('ov-dedup').textContent       = fmtN(u.dedup_hits);
+      $('ov-uptime').textContent      = fmtUptime(S.diagData.uptime_seconds);
+      renderOvChart();
+      renderOvOpsLog();
+      renderOvPct();
+      renderOvCollections();
+      renderOvErrors();
+    } else {
+      $('ov-diag-disabled').style.display = '';
+      $('ov-searches').textContent    = '—';
+      $('ov-extractions').textContent = '—';
+      $('ov-dedup').textContent       = '—';
+      $('ov-uptime').textContent      = '—';
+      renderOvCollections();
+    }
+  }
+
+  function renderOvChart() {
+    const canvas = $('ov-chart');
+    const perf   = S.diagData && S.diagData.performance || {};
+    const addH   = S.perfHistory['add_memory'];
+    const srchH  = S.perfHistory['search'] || S.perfHistory['search_memory'];
+    drawDualChart(canvas, addH, srchH, perfThresh('add_memory'), perfThresh('search_memory'));
+  }
+
+  function renderOvOpsLog() {
+    const log = $('ov-ops-log');
+    if (!S.opsLog.length) {
+      log.innerHTML = `<div style="color:var(--faint);font-size:12px">No operations recorded yet.</div>`;
       return;
     }
-    recordPerfSnapshot(perf);
+    const tagClass = { ADD:'tag-add', FIND:'tag-find', DEL:'tag-del', DEDUP:'tag-dedup', EMBED:'tag-embed' };
+    log.innerHTML = S.opsLog.map(op => `
+      <div class="ops-log-item">
+        <span class="ops-time">${relTime(op.ts)}</span>
+        <span class="ops-tag ${tagClass[op.tag] || 'tag-other'}">${op.tag}</span>
+        <span class="ops-proj">${esc(op.proj)}</span>
+        <span class="ops-detail">${esc(op.detail)}</span>
+      </div>
+    `).join('');
+  }
 
-    const existingKeys = new Set(Array.from(container.querySelectorAll('.dash-chart-panel')).map(el => el.dataset.key));
-    const neededKeys = new Set(keys);
+  function renderOvPct() {
+    const tbody  = $('ov-pct-body');
+    const perf   = S.diagData && S.diagData.performance || {};
+    const keys   = Object.keys(perf);
+    if (!keys.length) {
+      tbody.innerHTML = `<tr><td colspan="5" style="color:var(--faint);padding:10px 6px">No data</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = keys.map(k => {
+      const d = perf[k];
+      const th = perfThresh(k);
+      const p50  = d.p50  !== undefined ? d.p50  : (d.avg_ms || 0);
+      const p95  = d.p95  !== undefined ? d.p95  : null;
+      const p99  = d.p99  !== undefined ? d.p99  : null;
+      const mx   = d.max  !== undefined ? d.max  : null;
+      return `<tr>
+        <td style="color:var(--dim)">${esc(k)}</td>
+        <td class="${latClass(p50, th)}">${fmtMs(p50)}</td>
+        <td class="${latClass(p95, th)}">${fmtMs(p95)}</td>
+        <td class="${latClass(p99, th)}">${fmtMs(p99)}</td>
+        <td class="${latClass(mx,  th)}">${fmtMs(mx)}</td>
+      </tr>`;
+    }).join('');
+  }
 
-    for (const k of existingKeys) {
-      if (!neededKeys.has(k)) container.querySelector(`[data-key="${k}"]`)?.remove();
+  function renderOvCollections() {
+    const cont = $('ov-collections');
+    if (!S.projects.length) {
+      cont.innerHTML = `<div class="empty" style="padding:20px">No projects</div>`;
+      return;
+    }
+    const max = Math.max(...S.projects.map(p => p.memory_count), 1);
+    cont.innerHTML = S.projects.map((p, i) => {
+      const pct = (p.memory_count / max * 100).toFixed(1);
+      const color = BAR_COLORS[i % BAR_COLORS.length];
+      return `
+        <div class="bar-item">
+          <div class="bar-name" title="${esc(p.slug)}">${esc(p.slug)}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
+          <div class="bar-val">${fmtN(p.memory_count)}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderOvErrors() {
+    const cont  = $('ov-errors');
+    const rel   = S.diagData && S.diagData.reliability || {};
+    const errs  = rel.error_counts || {};
+    const keys  = Object.keys(errs);
+    if (!keys.length) {
+      cont.innerHTML = `<div style="color:var(--faint);font-size:12px">No error data available.</div>`;
+      return;
+    }
+    cont.innerHTML = keys.map(k => {
+      const n = errs[k] || 0;
+      return `<div class="err-counter">
+        <span class="err-name">${esc(k)}</span>
+        <span class="${n === 0 ? 'err-zero' : 'err-nonzero'}">${fmtN(n)}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // ─── Diagnostics tab rendering ────────────────────────────────────────────────
+  async function renderDiagnostics() {
+    if (!S.diagData) await loadDiagnostics();
+    const cont   = $('diag-content');
+    const dismsg = $('diag-disabled-msg');
+    if (!S.diagData) {
+      dismsg.style.display = '';
+      cont.style.display   = 'none';
+      return;
+    }
+    dismsg.style.display = 'none';
+    cont.style.display   = 'flex';
+
+    const perf = S.diagData.performance || {};
+    const addH = S.perfHistory['add_memory'];
+    const srchH = S.perfHistory['search'] || S.perfHistory['search_memory'];
+    drawSingleChart($('diag-chart-add'),    addH,  perfThresh('add_memory'),    '#4ade80');
+    drawSingleChart($('diag-chart-search'), srchH, perfThresh('search_memory'), '#60a5fa');
+
+    // Percentiles
+    const tbody = $('diag-pct-body');
+    const keys  = Object.keys(perf);
+    if (keys.length) {
+      tbody.innerHTML = keys.map(k => {
+        const d  = perf[k];
+        const th = perfThresh(k);
+        const p50 = d.p50 !== undefined ? d.p50 : (d.avg_ms || 0);
+        return `<tr>
+          <td style="color:var(--dim)">${esc(k)}</td>
+          <td class="${latClass(p50, th)}">${fmtMs(p50)}</td>
+          <td class="${latClass(d.p95, th)}">${fmtMs(d.p95)}</td>
+          <td class="${latClass(d.p99, th)}">${fmtMs(d.p99)}</td>
+          <td class="${latClass(d.max, th)}">${fmtMs(d.max)}</td>
+        </tr>`;
+      }).join('');
     }
 
-    for (const k of keys) {
-      const d = perf[k];
-      const avg = d.avg_ms || 0;
-      const thresh = perfThreshold(k);
-      const cls = avg <= thresh ? 'ok' : 'bad';
-      let panel = container.querySelector(`[data-key="${k}"]`);
-      if (!panel) {
-        panel = document.createElement('div');
-        panel.className = 'dash-chart-panel';
-        panel.dataset.key = k;
-        panel.innerHTML = `
-          <div class="dash-chart-header">
-            <span class="dash-chart-title"></span>
-            <span class="dash-chart-value"></span>
-          </div>
-          <canvas class="dash-chart-canvas"></canvas>
-          <div class="dash-chart-sub"></div>`;
-        container.appendChild(panel);
-      }
-      panel.querySelector('.dash-chart-title').textContent = k;
-      const valEl = panel.querySelector('.dash-chart-value');
-      valEl.textContent = avg >= 1000 ? (avg / 1000).toFixed(1) + 's' : avg.toFixed(0) + 'ms';
-      valEl.className = 'dash-chart-value ' + cls;
-      const p95Text = d.p95 !== null ? `p95: ${d.p95 >= 1000 ? (d.p95/1000).toFixed(1)+'s' : d.p95+'ms'}` : '';
-      const countText = d.count ? `${fmtNum(d.count)} ops` : '';
-      panel.querySelector('.dash-chart-sub').textContent = [countText, p95Text].filter(Boolean).join('  ·  ');
+    // Score distribution
+    const acc  = S.diagData.accuracy || {};
+    const dist = (acc.search && acc.search.score_distribution) || {};
+    const sdCont = $('diag-score-dist');
+    const buckets = ['0.9-1.0','0.8-0.9','0.7-0.8','0.6-0.7','0.5-0.6','0.0-0.5'];
+    const bucketColors = { '0.9-1.0':'var(--green)','0.8-0.9':'var(--green)',
+      '0.7-0.8':'var(--blue)','0.6-0.7':'var(--yellow)',
+      '0.5-0.6':'var(--orange)','0.0-0.5':'var(--red)' };
+    const distCounts = buckets.map(b => dist[b] || 0);
+    const distMax = Math.max(...distCounts, 1);
+    if (distCounts.every(c => c === 0)) {
+      sdCont.innerHTML = `<div style="color:var(--faint);font-size:12px">No search data.</div>`;
+    } else {
+      sdCont.innerHTML = buckets.map((b, i) => `
+        <div class="dist-bar-row">
+          <span class="dist-label">${b}</span>
+          <div class="dist-track"><div class="dist-fill" style="width:${(distCounts[i]/distMax*100).toFixed(1)}%;background:${bucketColors[b]}"></div></div>
+          <span class="dist-count">${fmtN(distCounts[i])}</span>
+        </div>
+      `).join('');
+    }
 
-      const canvas = panel.querySelector('canvas');
-      drawChart(canvas, perfHistory[k], thresh);
+    // Accuracy metrics
+    const dedup   = acc.dedup || {};
+    const extract = acc.extraction || {};
+    const search  = acc.search || {};
+    $('dacc-facts').textContent     = fmtN(acc.total_facts_extracted);
+    $('dacc-dedup').textContent     = dedup.effectiveness || '—';
+    $('dacc-extract').textContent   = extract.success_rate || '—';
+    $('dacc-relevance').textContent = search.avg_score !== undefined && search.avg_score !== null
+      ? search.avg_score.toFixed(3) : '—';
+
+    // Error counters
+    const rel     = S.diagData.reliability || {};
+    const errCts  = rel.error_counts || {};
+    const ecCont  = $('diag-error-counters');
+    const ecKeys  = Object.keys(errCts);
+    if (ecKeys.length) {
+      ecCont.innerHTML = ecKeys.map(k => {
+        const n = errCts[k] || 0;
+        return `<div class="err-counter">
+          <span class="err-name">${esc(k)}</span>
+          <span class="${n === 0 ? 'err-zero' : 'err-nonzero'}">${fmtN(n)}</span>
+        </div>`;
+      }).join('');
+    } else {
+      ecCont.innerHTML = `<div style="color:var(--faint);font-size:12px">No error data.</div>`;
+    }
+
+    // Recent errors
+    const recentErrs = rel.recent_errors || [];
+    const reCont     = $('diag-recent-errors');
+    if (recentErrs.length) {
+      reCont.innerHTML = recentErrs.slice(-15).reverse().map(e => {
+        const dt  = new Date(e.timestamp * 1000);
+        const tStr = dt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+        return `<div class="recent-err-item">
+          <span class="re-time">${tStr}</span>
+          <span class="re-type" style="background:rgba(239,68,68,0.12);color:var(--red)">${esc(e.operation)}</span>
+          <span class="re-msg" title="${esc(e.error)}">${esc(e.error)}</span>
+        </div>`;
+      }).join('');
+    } else {
+      reCont.innerHTML = `<div style="color:var(--faint);font-size:12px">No errors.</div>`;
+    }
+
+    // Operation counts bar chart
+    const u    = S.diagData.usage || {};
+    const opData = [
+      ['add',        u.add_operations   || 0, 'var(--green)'],
+      ['search',     u.search_operations|| 0, 'var(--blue)'],
+      ['delete',     u.delete_operations|| 0, 'var(--red)'],
+      ['extractions',u.total_facts_stored||0, 'var(--cyan)'],
+      ['dedup',      u.dedup_hits       || 0, 'var(--yellow)'],
+      ['embeddings', u.total_embeddings || 0, 'var(--orange)'],
+    ];
+    const opMax = Math.max(...opData.map(d => d[1]), 1);
+    $('diag-op-counts').innerHTML = opData.map(([label, val, color]) => `
+      <div class="ops-count-bar">
+        <span class="ops-count-label">${label}</span>
+        <div class="ops-count-track"><div class="ops-count-fill" style="width:${(val/opMax*100).toFixed(1)}%;background:${color}"></div></div>
+        <span class="ops-count-val">${fmtN(val)}</span>
+      </div>
+    `).join('');
+  }
+
+  // ─── Config tab rendering ─────────────────────────────────────────────────────
+  async function renderConfig() {
+    if (!cfgCache) await loadConfig();
+    const h = await API.health().catch(() => null);
+
+    // Connection status from health data
+    const services = (h && h.services) || {};
+    const ollamaOk  = services.ollama  !== undefined ? !!services.ollama  : null;
+    const qdrantOk  = services.qdrant  !== undefined ? !!services.qdrant  : null;
+    const bundledOk = services.bundled !== undefined ? !!services.bundled : null;
+
+    function setConn(dotId, statusId, ok) {
+      const dot = $(dotId);
+      const lbl = $(statusId);
+      if (ok === null) {
+        dot.className = 'conn-dot';
+        lbl.textContent = 'unknown';
+      } else if (ok) {
+        dot.className = 'conn-dot ok';
+        lbl.textContent = 'reachable';
+      } else {
+        dot.className = 'conn-dot err';
+        lbl.textContent = 'unreachable';
+      }
+    }
+
+    setConn('conn-ollama',   'conn-ollama-status',   ollamaOk);
+    setConn('conn-qdrant',   'conn-qdrant-status',   qdrantOk);
+    setConn('conn-bundled',  'conn-bundled-status',  bundledOk);
+
+    // Backend config card
+    const cfg = cfgCache || {};
+    const backendRows = [
+      ['LLM Backend',   cfg.llm_backend    || '—'],
+      ['Chat Model',    cfg.llm_model || cfg.openai_model || '—'],
+      ['Embed Model',   cfg.embedding_model || '—'],
+      ['Embed Dims',    cfg.embedding_dimensions || '—'],
+      ['Fallback',      cfg.fallback_backend || 'none'],
+    ];
+    $('cfg-backend-rows').innerHTML = backendRows.map(([k,v]) => `
+      <div class="conn-row">
+        <span class="conn-name" style="color:var(--faint);font-size:12px">${esc(k)}</span>
+        <span class="conn-status" style="color:var(--dim);font-size:12px">${esc(String(v))}</span>
+      </div>
+    `).join('');
+
+    // Storage
+    const totalVec = S.projects.reduce((s, p) => s + p.memory_count, 0);
+    $('cfg-storage-rows').innerHTML = `
+      <div class="conn-row">
+        <span class="conn-name" style="color:var(--faint);font-size:12px">Vector count</span>
+        <span class="conn-status" style="color:var(--dim);font-size:12px">${fmtN(totalVec)}</span>
+      </div>
+      <div class="conn-row">
+        <span class="conn-name" style="color:var(--faint);font-size:12px">Projects</span>
+        <span class="conn-status" style="color:var(--dim);font-size:12px">${fmtN(S.projects.length)}</span>
+      </div>
+      <div class="conn-row">
+        <span class="conn-name" style="color:var(--faint);font-size:12px">Embed model</span>
+        <span class="conn-status" style="color:var(--dim);font-size:12px">${esc(cfg.embedding_model || '—')}</span>
+      </div>
+    `;
+
+    // Auth
+    const apiKeyOn  = cfg.api_key_enabled  !== undefined ? cfg.api_key_enabled  : (cfg.api_key  ? true : undefined);
+    const dashAuthOn = cfg.dashboard_auth_enabled !== undefined ? cfg.dashboard_auth_enabled : undefined;
+    let authHtml = '';
+    if (apiKeyOn !== undefined) {
+      authHtml += `<span class="auth-badge ${apiKeyOn ? 'auth-on' : 'auth-off'}">API Key ${apiKeyOn ? 'ON' : 'OFF'}</span>`;
+    }
+    if (dashAuthOn !== undefined) {
+      authHtml += `<span class="auth-badge ${dashAuthOn ? 'auth-on' : 'auth-off'}">Dashboard Auth ${dashAuthOn ? 'ON' : 'OFF'}</span>`;
+    }
+    $('cfg-auth-content').innerHTML = authHtml || `<span style="color:var(--faint);font-size:12px">Auth configuration not exposed.</span>`;
+
+    // Environment table
+    const MASKED = ['api_key','password','secret','token','key'];
+    const tbody  = $('cfg-env-body');
+    const envEntries = Object.entries(cfg).filter(([k]) => !['llm_backend','llm_model','openai_model',
+      'embedding_model','embedding_dimensions','fallback_backend','bundled_model_path'].includes(k));
+    if (envEntries.length) {
+      tbody.innerHTML = envEntries.map(([k, v]) => {
+        const isSensitive = MASKED.some(m => k.toLowerCase().includes(m));
+        const displayVal  = isSensitive && v
+          ? `<span class="kv-masked">••••••</span>`
+          : `<span class="kv-val">${esc(String(v))}</span>`;
+        return `<tr><td class="kv-key">${esc(k)}</td><td>${displayVal}</td></tr>`;
+      }).join('');
+    } else {
+      tbody.innerHTML = `<tr><td colspan="2" style="color:var(--faint);font-size:12px;padding:8px">No additional config exposed.</td></tr>`;
     }
   }
 
-  function drawChart(canvas, history, threshold) {
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
+  // ─── Canvas charts ─────────────────────────────────────────────────────────────
+  function drawDualChart(canvas, h1, h2, thresh1, thresh2) {
+    if (!canvas) return;
+    const dpr  = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width  = rect.width  * dpr;
     canvas.height = rect.height * dpr;
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
@@ -1716,201 +2655,141 @@
     const H = rect.height;
     ctx.clearRect(0, 0, W, H);
 
-    const values = history.avgs;
-    if (values.length < 2) return;
+    const v1 = h1 ? h1.avgs : [];
+    const v2 = h2 ? h2.avgs : [];
+    if (!v1.length && !v2.length) return;
 
-    const allVals = [...values, threshold];
-    const maxVal = Math.max(...allVals) * 1.15;
-    const minVal = 0;
-    const range = maxVal - minVal || 1;
+    const allV  = [...v1, ...v2, thresh1, thresh2].filter(Boolean);
+    const maxV  = Math.max(...allV) * 1.15 || 1;
+    const xStep = W / (PERF_MAX - 1);
 
-    const xStep = W / (PERF_MAX_POINTS - 1);
-    const startOffset = (PERF_MAX_POINTS - values.length) * xStep;
+    function toY(v) { return H - (v / maxV) * (H - 6) - 3; }
 
-    const toY = v => H - ((v - minVal) / range) * (H - 4) - 2;
+    function drawLine(vals, color, glowColor) {
+      if (vals.length < 2) return;
+      const start = (PERF_MAX - vals.length) * xStep;
+      ctx.beginPath();
+      ctx.moveTo(start, toY(vals[0]));
+      for (let i = 1; i < vals.length; i++) ctx.lineTo(start + i * xStep, toY(vals[i]));
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = 1.5;
+      ctx.lineJoin    = 'round';
+      ctx.shadowColor = glowColor;
+      ctx.shadowBlur  = 6;
+      ctx.stroke();
+      ctx.shadowBlur  = 0;
+      // glow dot at end
+      const lx = start + (vals.length - 1) * xStep;
+      const ly = toY(vals[vals.length - 1]);
+      ctx.beginPath();
+      ctx.arc(lx, ly, 3, 0, Math.PI * 2);
+      ctx.fillStyle   = color;
+      ctx.shadowColor = glowColor;
+      ctx.shadowBlur  = 8;
+      ctx.fill();
+      ctx.shadowBlur  = 0;
+    }
 
-    // threshold line
-    const threshY = toY(threshold);
-    ctx.setLineDash([6, 4]);
-    ctx.strokeStyle = '#e94560';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(0, threshY);
-    ctx.lineTo(W, threshY);
-    ctx.stroke();
+    drawLine(v1, '#4ade80', 'rgba(74,222,128,0.6)');
+    drawLine(v2, '#60a5fa', 'rgba(96,165,250,0.6)');
+  }
+
+  function drawSingleChart(canvas, history, threshold, lineColor) {
+    if (!canvas || !history || history.avgs.length < 2) return;
+    const dpr  = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width  = rect.width  * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const W = rect.width;
+    const H = rect.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const vals    = history.avgs;
+    const allV    = [...vals, threshold];
+    const maxV    = Math.max(...allV) * 1.15 || 1;
+    const xStep   = W / (PERF_MAX - 1);
+    const start   = (PERF_MAX - vals.length) * xStep;
+
+    function toY(v) { return H - (v / maxV) * (H - 6) - 3; }
+
+    // threshold dashed line
+    const ty = toY(threshold);
+    ctx.setLineDash([5,4]);
+    ctx.strokeStyle = 'rgba(239,68,68,0.5)';
+    ctx.lineWidth   = 1;
+    ctx.beginPath(); ctx.moveTo(0, ty); ctx.lineTo(W, ty); ctx.stroke();
     ctx.setLineDash([]);
 
-    // fill under the line
+    // fill
+    const over = vals[vals.length - 1] > threshold;
     ctx.beginPath();
-    ctx.moveTo(startOffset, toY(values[0]));
-    for (let i = 1; i < values.length; i++) {
-      ctx.lineTo(startOffset + i * xStep, toY(values[i]));
-    }
-    ctx.lineTo(startOffset + (values.length - 1) * xStep, H);
-    ctx.lineTo(startOffset, H);
+    ctx.moveTo(start, toY(vals[0]));
+    for (let i = 1; i < vals.length; i++) ctx.lineTo(start + i*xStep, toY(vals[i]));
+    ctx.lineTo(start + (vals.length-1)*xStep, H);
+    ctx.lineTo(start, H);
     ctx.closePath();
-    const overThreshold = values[values.length - 1] > threshold;
-    ctx.fillStyle = overThreshold ? 'rgba(233, 69, 96, 0.08)' : 'rgba(61, 214, 140, 0.08)';
+    ctx.fillStyle = over ? 'rgba(239,68,68,0.06)' : 'rgba(74,222,128,0.06)';
     ctx.fill();
 
     // line
     ctx.beginPath();
-    ctx.moveTo(startOffset, toY(values[0]));
-    for (let i = 1; i < values.length; i++) {
-      ctx.lineTo(startOffset + i * xStep, toY(values[i]));
-    }
-    ctx.strokeStyle = overThreshold ? '#e94560' : '#3dd68c';
-    ctx.lineWidth = 2;
-    ctx.lineJoin = 'round';
+    ctx.moveTo(start, toY(vals[0]));
+    for (let i = 1; i < vals.length; i++) ctx.lineTo(start + i*xStep, toY(vals[i]));
+    ctx.strokeStyle = over ? '#ef4444' : lineColor;
+    ctx.lineWidth   = 2;
+    ctx.lineJoin    = 'round';
+    ctx.shadowColor = over ? 'rgba(239,68,68,0.4)' : 'rgba(74,222,128,0.3)';
+    ctx.shadowBlur  = 6;
     ctx.stroke();
+    ctx.shadowBlur  = 0;
 
-    // latest point dot
-    const lastX = startOffset + (values.length - 1) * xStep;
-    const lastY = toY(values[values.length - 1]);
+    // glow dot
+    const lx = start + (vals.length-1)*xStep;
+    const ly = toY(vals[vals.length-1]);
     ctx.beginPath();
-    ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
-    ctx.fillStyle = ctx.strokeStyle;
+    ctx.arc(lx, ly, 3.5, 0, Math.PI*2);
+    ctx.fillStyle   = ctx.strokeStyle;
+    ctx.shadowColor = ctx.strokeStyle;
+    ctx.shadowBlur  = 10;
     ctx.fill();
+    ctx.shadowBlur  = 0;
   }
 
-  function renderScoreDist(dist) {
-    const container = $('dash-score-dist');
-    const buckets = ['0.0-0.2','0.2-0.4','0.4-0.6','0.6-0.8','0.8-1.0'];
-    const counts = buckets.map(b => dist[b] || 0);
-    const maxCount = Math.max(...counts, 1);
-    if (counts.every(c => c === 0)) {
-      container.innerHTML = '<div class="dash-perf-empty">No search data</div>';
-      return;
-    }
-    const colors = ['var(--score-low)','var(--score-mid)','var(--score-mid)','var(--score-ok)','var(--score-ok)'];
-    container.innerHTML = buckets.map((b, i) => {
-      const pct = (counts[i] / maxCount) * 100;
-      return `<div class="dash-dist-row">
-        <span class="dash-dist-label">${b}</span>
-        <div class="dash-dist-bar-wrap"><div class="dash-dist-bar" style="width:${pct}%;background:${colors[i]}"></div></div>
-        <span class="dash-dist-count">${fmtNum(counts[i])}</span>
-      </div>`;
-    }).join('');
-  }
-
-  function renderErrors(errors) {
-    const container = $('dash-errors');
-    if (!errors.length) {
-      container.innerHTML = '<div class="dash-perf-empty">No errors</div>';
-      return;
-    }
-    container.innerHTML = errors.slice(-10).reverse().map(e => {
-      const t = new Date(e.timestamp * 1000);
-      const time = t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-      const date = t.toLocaleDateString([], {month:'short',day:'numeric'});
-      return `<div class="dash-error-item">
-        <span class="dash-error-time">${date} ${time}</span>
-        <span class="dash-error-op">${esc(e.operation)}</span>
-        <span class="dash-error-msg" title="${esc(e.error)}">${esc(e.error)}</span>
-      </div>`;
-    }).join('');
-  }
-
-  // ── Event wiring ───────────────────────────────────────────────────────────
-
-  // Logo → dashboard home
-  $('logo-home').addEventListener('click', showDashboard);
-
-  // Project selection (delegated)
-  projectList.addEventListener('click', e => {
-    const item = e.target.closest('.project-item');
-    if (!item) return;
-    selectProject(item.dataset.slug);
+  // ─── Tab wiring ────────────────────────────────────────────────────────────────
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
 
-  // Search
-  let searchTimer;
-  searchInput.addEventListener('input', () => {
-    const q = searchInput.value.trim();
-    searchWrap.classList.toggle('has-query', !!q);
-    if (!q) {
-      clearTimeout(searchTimer);
-      if (state.searchMode) loadMemories();
-    }
+  $('logo-area').addEventListener('click', () => switchTab('overview'));
+
+  window.addEventListener('popstate', () => switchTab(readHash(), false));
+
+  $('modal-backdrop').addEventListener('click', e => {
+    if (e.target === $('modal-backdrop')) $('modal-backdrop').classList.remove('open');
   });
 
-  searchInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
-      clearTimeout(searchTimer);
-      const q = searchInput.value.trim();
-      if (q) runSearch(q);
-      else if (state.searchMode) loadMemories();
-    }
-  });
-
-  searchClear.addEventListener('click', () => {
-    searchInput.value = '';
-    searchWrap.classList.remove('has-query');
-    if (state.searchMode) loadMemories();
-    searchInput.focus();
-  });
-
-  // MCP URL copy
-  mcpUrl.addEventListener('click', () => {
-    const url = buildMcpUrl(state.activeSlug, state.userId);
-    copyToClipboard(url);
-  });
-
-  // User ID change updates MCP URL live
-  mcpUserInput.addEventListener('input', () => {
-    state.userId = mcpUserInput.value.trim() || 'default';
-    updateMcpUrl();
-  });
-
-  // Add memory
-  addBtn.addEventListener('click', addMemory);
-  addText.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addMemory();
-  });
-
-  // Consolidate
-  consolidateBtn.addEventListener('click', consolidateMemories);
-
-  // Delete all
-  deleteAllBtn.addEventListener('click', deleteAll);
-
-  // Delete project
-  deleteProjectBtn.addEventListener('click', deleteProject);
-
-  // Delete single (delegated)
-  memoryList.addEventListener('click', e => {
-    const btn = e.target.closest('.delete-btn');
-    if (!btn) return;
-    deleteMemory(btn.dataset.id);
-  });
-
-  // Refresh
-  refreshBtn.addEventListener('click', () => {
-    loadProjects();
-    if (state.activeSlug) loadMemories();
-  });
-
-  // Modal close on backdrop click
-  modalBackdrop.addEventListener('click', e => {
-    if (e.target === modalBackdrop) {
-      modalBackdrop.classList.remove('open');
-    }
-  });
-
-  // Keyboard: Escape closes modal
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && modalBackdrop.classList.contains('open')) {
-      modalBackdrop.classList.remove('open');
+    if (e.key === 'Escape' && $('modal-backdrop').classList.contains('open')) {
+      $('modal-backdrop').classList.remove('open');
     }
   });
 
-  // ── Boot ──────────────────────────────────────────────────────────────────
+  // ─── Boot ──────────────────────────────────────────────────────────────────────
   async function init() {
+    const initTab = readHash();
     await Promise.all([checkHealth(), loadConfig(), loadProjects()]);
-    loadDashboard();
-    setInterval(checkHealth, 30_000);
+    switchTab(initTab, false);
+    setInterval(checkHealth,  30_000);
     setInterval(loadProjects, 60_000);
-    setInterval(() => { if (!state.activeSlug) loadDashboard(); }, 15_000);
+    setInterval(async () => {
+      if (S.currentTab === 'overview' || S.currentTab === 'diagnostics') {
+        await loadDiagnostics();
+        if (S.currentTab === 'overview')     renderOverview();
+        if (S.currentTab === 'diagnostics')  renderDiagnostics();
+      }
+    }, 15_000);
   }
 
   init();
