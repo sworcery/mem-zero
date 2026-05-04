@@ -8,12 +8,12 @@
   <Privileged>false</Privileged>
   <Support>https://forums.unraid.net/topic/198592-support-mem-zero-self-hosted-mcp-memory-server-for-ai-coding-assistants/</Support>
   <WebUI>http://[IP]:[PORT:8765]/</WebUI>
-  <Overview>Project-isolated MCP memory server with embedded Qdrant and bundled LLM.</Overview>
+  <Overview>Self-hosted memory server for AI coding assistants. Store, search, and manage persistent context across sessions so your tools remember what happened last week without stuffing everything into the context window. Each project gets its own isolated vector collection with automatic fact extraction, deduplication, and semantic search. Works with Claude Code, Cursor, Windsurf, and any MCP-compatible client. Includes a bundled LLM for zero-config operation, or connect to Ollama or OpenAI for better quality. Web dashboard included for browsing and managing memories.</Overview>
   <Category>Tools:</Category>
-  <Icon>/icon.png</Icon>
+  <Icon>https://raw.githubusercontent.com/sworcery/mem-zero/main/icon.png</Icon>
   <ExtraParams>--add-host=host.docker.internal:host-gateway</ExtraParams>
   <DateInstalled/>
-  <Description>Project-isolated MCP memory server with embedded Qdrant vector database. Includes a bundled LLM for self-contained operation, or connect to Ollama/OpenAI.</Description>
+  <Description>Self-hosted memory server for AI coding assistants. Store, search, and manage persistent context across sessions so your tools remember what happened last week without stuffing everything into the context window. Each project gets its own isolated vector collection with automatic fact extraction, deduplication, and semantic search. Works with Claude Code, Cursor, Windsurf, and any MCP-compatible client. Includes a bundled LLM for zero-config operation, or connect to Ollama or OpenAI for better quality. Web dashboard included for browsing and managing memories.</Description>
   <Config Name="WebUI Port" Target="8765" Default="8765" Mode="tcp" Description="Web dashboard and MCP server HTTP port" Type="Port" Display="always" Required="true" Mask="false">8765</Config>
   <Config Name="Qdrant Port" Target="6333" Default="" Mode="tcp" Description="Qdrant API port (optional, for direct access)" Type="Port" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="Storage" Target="/mem-zero/storage" Default="/mnt/user/appdata/mem-zero" Mode="rw" Description="Persistent storage for Qdrant data" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/mem-zero</Config>
