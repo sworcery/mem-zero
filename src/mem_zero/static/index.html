@@ -737,7 +737,7 @@
     }
 
     .pct-table th {
-      font-size: 10px;
+      font-size: 12px;
       font-weight: 600;
       letter-spacing: 0.5px;
       text-transform: uppercase;
@@ -748,7 +748,7 @@
     }
 
     .pct-table td {
-      font-size: 12px;
+      font-size: 13px;
       padding: 5px 6px;
       border-bottom: 1px solid var(--border);
     }
@@ -1184,7 +1184,7 @@
     }
 
     .diag-card-title {
-      font-size: 11px;
+      font-size: 13px;
       font-weight: 600;
       letter-spacing: 0.8px;
       text-transform: uppercase;
@@ -1309,7 +1309,7 @@
     }
 
     .cfg-card-title {
-      font-size: 11px;
+      font-size: 13px;
       font-weight: 600;
       letter-spacing: 0.8px;
       text-transform: uppercase;
@@ -2646,7 +2646,7 @@
     ctx.shadowBlur = 0;
 
     ctx.fillStyle = '#565a7e';
-    ctx.font = '10px JetBrains Mono, monospace';
+    ctx.font = '11px JetBrains Mono, monospace';
     ctx.textAlign = 'start';
     ctx.fillText(snaps[0].date.slice(5), PAD_L + 2, H - 2);
     ctx.textAlign = 'end';
@@ -2872,7 +2872,7 @@
   // ─── Canvas charts ─────────────────────────────────────────────────────────────
   function drawYAxis(ctx, maxV, H, PAD_L, fmtLabel) {
     const ticks = 3;
-    ctx.font = '9px JetBrains Mono, monospace';
+    ctx.font = '11px JetBrains Mono, monospace';
     ctx.fillStyle = '#565a7e';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
@@ -2950,7 +2950,7 @@
 
     if (times.length >= 2) {
       ctx.fillStyle = '#565a7e';
-      ctx.font = '10px JetBrains Mono, monospace';
+      ctx.font = '11px JetBrains Mono, monospace';
       const fmtTime = ts => new Date(ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
       ctx.textAlign = 'start';
       ctx.fillText(fmtTime(times[0]), PAD_L, H - 2);
