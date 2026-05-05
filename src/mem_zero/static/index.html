@@ -31,6 +31,12 @@
       --yellow:    #facc15;
       --yellow-glow: 0 0 12px rgba(250,204,21,0.3);
       --red:       #ef4444;
+      --purple:    #a78bfa;
+      --purple-glow: 0 0 12px rgba(167,139,250,0.3);
+      --teal:      #2dd4bf;
+      --teal-glow: 0 0 12px rgba(45,212,191,0.3);
+      --pink:      #f472b6;
+      --pink-glow: 0 0 12px rgba(244,114,182,0.3);
       --sidebar-w: 240px;
       --topbar-h:  52px;
     }
@@ -558,6 +564,9 @@
       gap: 12px;
       flex-shrink: 0;
     }
+    .stat-row-3 {
+      grid-template-columns: repeat(3, 1fr);
+    }
 
     .stat-block {
       background: var(--surface);
@@ -572,6 +581,9 @@
     .stat-block.cyan   { border-top-color: var(--cyan); }
     .stat-block.yellow { border-top-color: var(--yellow); }
     .stat-block.orange { border-top-color: var(--orange); }
+    .stat-block.purple { border-top-color: var(--purple); }
+    .stat-block.teal   { border-top-color: var(--teal); }
+    .stat-block.pink   { border-top-color: var(--pink); }
 
     .stat-label {
       font-size: 13px;
@@ -593,6 +605,9 @@
     .stat-value.cyan   { color: var(--cyan);   text-shadow: var(--cyan-glow); }
     .stat-value.yellow { color: var(--yellow); text-shadow: var(--yellow-glow); }
     .stat-value.orange { color: var(--orange); text-shadow: var(--orange-glow); }
+    .stat-value.purple { color: var(--purple); text-shadow: var(--purple-glow); }
+    .stat-value.teal   { color: var(--teal);   text-shadow: var(--teal-glow); }
+    .stat-value.pink   { color: var(--pink);   text-shadow: var(--pink-glow); }
 
     .ov-status-bar {
       display: flex;
@@ -1371,6 +1386,7 @@
 
     @media (max-width: 900px) {
       .stat-row { grid-template-columns: repeat(3, 1fr); }
+      .stat-row-3 { grid-template-columns: repeat(3, 1fr); }
       .overview-mid { grid-template-columns: 1fr; }
       .overview-bottom { grid-template-columns: 1fr 1fr; }
       .diag-grid-2 { grid-template-columns: 1fr; }
@@ -1381,6 +1397,7 @@
     @media (max-width: 640px) {
       :root { --sidebar-w: 200px; }
       .stat-row { grid-template-columns: repeat(2, 1fr); }
+      .stat-row-3 { grid-template-columns: repeat(2, 1fr); }
       .overview-bottom { grid-template-columns: 1fr; }
       .proj-mini-stats { grid-template-columns: repeat(2, 1fr); }
     }
@@ -1462,6 +1479,20 @@
         <div class="stat-block orange">
           <div class="stat-label">Uptime</div>
           <div class="stat-value orange" id="ov-uptime">—</div>
+        </div>
+      </div>
+      <div class="stat-row stat-row-3">
+        <div class="stat-block purple">
+          <div class="stat-label">Avg Score</div>
+          <div class="stat-value purple" id="ov-avg-score">—</div>
+        </div>
+        <div class="stat-block teal">
+          <div class="stat-label">Ops / Day</div>
+          <div class="stat-value teal" id="ov-ops-day">—</div>
+        </div>
+        <div class="stat-block pink">
+          <div class="stat-label">Facts / Input</div>
+          <div class="stat-value pink" id="ov-facts-input">—</div>
         </div>
       </div>
 
@@ -2409,6 +2440,12 @@
       $('ov-extractions').textContent = fmtN(u.total_facts_stored);
       $('ov-dedup').textContent       = fmtN(u.dedup_hits);
       $('ov-uptime').textContent      = fmtUptime(S.diagData.uptime_seconds);
+      const acc = S.diagData.accuracy || {};
+      const avgScore = acc.search && acc.search.avg_score;
+      $('ov-avg-score').textContent   = avgScore !== null && avgScore !== undefined ? avgScore.toFixed(2) : '—';
+      $('ov-ops-day').textContent     = u.operations_per_day !== undefined ? u.operations_per_day.toFixed(1) : '—';
+      const fpi = acc.extraction && acc.extraction.avg_facts_per_input;
+      $('ov-facts-input').textContent = fpi !== null && fpi !== undefined ? fpi.toFixed(1) : '—';
       renderOvChart();
       renderOvOpsLog();
       renderOvPct();
@@ -2421,6 +2458,9 @@
       $('ov-extractions').textContent = '—';
       $('ov-dedup').textContent       = '—';
       $('ov-uptime').textContent      = '—';
+      $('ov-avg-score').textContent   = '—';
+      $('ov-ops-day').textContent     = '—';
+      $('ov-facts-input').textContent = '—';
       renderOvCollections();
     }
   }
