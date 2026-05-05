@@ -2666,19 +2666,20 @@
     function toY(v) { return H - (v / maxV) * (H - 6) - 3; }
 
     function drawLine(vals, color, glowColor) {
-      if (vals.length < 2) return;
+      if (!vals.length) return;
       const start = (PERF_MAX - vals.length) * xStep;
-      ctx.beginPath();
-      ctx.moveTo(start, toY(vals[0]));
-      for (let i = 1; i < vals.length; i++) ctx.lineTo(start + i * xStep, toY(vals[i]));
-      ctx.strokeStyle = color;
-      ctx.lineWidth   = 1.5;
-      ctx.lineJoin    = 'round';
-      ctx.shadowColor = glowColor;
-      ctx.shadowBlur  = 6;
-      ctx.stroke();
-      ctx.shadowBlur  = 0;
-      // glow dot at end
+      if (vals.length >= 2) {
+        ctx.beginPath();
+        ctx.moveTo(start, toY(vals[0]));
+        for (let i = 1; i < vals.length; i++) ctx.lineTo(start + i * xStep, toY(vals[i]));
+        ctx.strokeStyle = color;
+        ctx.lineWidth   = 1.5;
+        ctx.lineJoin    = 'round';
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur  = 6;
+        ctx.stroke();
+        ctx.shadowBlur  = 0;
+      }
       const lx = start + (vals.length - 1) * xStep;
       const ly = toY(vals[vals.length - 1]);
       ctx.beginPath();

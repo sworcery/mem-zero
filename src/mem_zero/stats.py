@@ -239,8 +239,12 @@ class DiagnosticStats:
                 "total_operations": total_ops,
                 "operations_per_day": round(total_ops / days_up, 1),
                 "total_add_memory_calls": self._counters.get("add_memory", 0),
+                "add_operations": self._counters.get("add_memory", 0),
                 "total_facts_stored": self._counters.get("facts_stored", 0),
                 "total_searches": self._counters.get("search", 0),
+                "search_operations": self._counters.get("search", 0),
+                "dedup_hits": dedup_effective,
+                "total_embeddings": self._counters.get("embed", 0),
                 "total_deletes": (
                     self._counters.get("delete", 0)
                     + self._counters.get("delete_all", 0)
