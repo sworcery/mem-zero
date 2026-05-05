@@ -1460,37 +1460,37 @@
     <!-- ── Overview ── -->
     <div id="overview-panel" class="tab-panel active" style="display:flex">
       <div class="stat-row">
-        <div class="stat-block green">
+        <div class="stat-block green" title="Total memories stored across all projects">
           <div class="stat-label">Memories</div>
           <div class="stat-value green" id="ov-memories">—</div>
         </div>
-        <div class="stat-block blue">
+        <div class="stat-block blue" title="Total semantic search queries performed">
           <div class="stat-label">Searches</div>
           <div class="stat-value blue" id="ov-searches">—</div>
         </div>
-        <div class="stat-block cyan">
+        <div class="stat-block cyan" title="Total atomic facts extracted from input text by the LLM">
           <div class="stat-label">Extractions</div>
           <div class="stat-value cyan" id="ov-extractions">—</div>
         </div>
-        <div class="stat-block yellow">
+        <div class="stat-block yellow" title="Times dedup detected a duplicate or near-duplicate fact and skipped or merged it">
           <div class="stat-label">Dedup Hits</div>
           <div class="stat-value yellow" id="ov-dedup">—</div>
         </div>
-        <div class="stat-block orange">
+        <div class="stat-block orange" title="Time since the server last started">
           <div class="stat-label">Uptime</div>
           <div class="stat-value orange" id="ov-uptime">—</div>
         </div>
       </div>
       <div class="stat-row stat-row-3">
-        <div class="stat-block purple">
+        <div class="stat-block purple" title="Average relevance score (0-1) across all search results. Higher means better matches.">
           <div class="stat-label">Avg Score</div>
           <div class="stat-value purple" id="ov-avg-score">—</div>
         </div>
-        <div class="stat-block teal">
+        <div class="stat-block teal" title="Average number of operations (adds, searches, deletes) per day since startup">
           <div class="stat-label">Ops / Day</div>
           <div class="stat-value teal" id="ov-ops-day">—</div>
         </div>
-        <div class="stat-block pink">
+        <div class="stat-block pink" title="Average number of atomic facts the LLM extracts per input text. Higher means richer extraction.">
           <div class="stat-label">Facts / Input</div>
           <div class="stat-value pink" id="ov-facts-input">—</div>
         </div>
