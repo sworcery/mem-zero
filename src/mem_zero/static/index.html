@@ -1505,7 +1505,7 @@
 
       <div class="overview-mid">
         <div class="ov-card">
-          <div class="ov-card-title">Latency — add_memory &amp; search_memory</div>
+          <div class="ov-card-title">Latency — add_memory &amp; search_memory <span style="opacity:0.5;font-size:11px">(last 24h)</span></div>
           <div class="chart-wrap">
             <canvas id="ov-chart"></canvas>
           </div>
@@ -1803,12 +1803,39 @@
     health:        null,
     services:      {},
     diagData:      null,
-    perfHistory:   {}, // key -> {times, adds, searches}
+    perfHistory:   null, // loaded below from localStorage
     opsLog:        [],  // recent ops for display
     currentTab:    'overview',
   };
 
-  const PERF_MAX = 60;
+  const PERF_WINDOW_MS = 24 * 60 * 60 * 1000;
+  const PERF_STORAGE_KEY = 'memzero_perfHistory';
+  const PERF_MIN_INTERVAL_MS = 30_000;
+
+  function loadPerfHistory() {
+    try {
+      const raw = localStorage.getItem(PERF_STORAGE_KEY);
+      if (!raw) return {};
+      const data = JSON.parse(raw);
+      const cutoff = Date.now() - PERF_WINDOW_MS;
+      for (const key of Object.keys(data)) {
+        const h = data[key];
+        while (h.times.length && h.times[0] < cutoff) {
+          h.times.shift(); h.avgs.shift(); h.p95s.shift();
+        }
+        if (!h.times.length) delete data[key];
+      }
+      return data;
+    } catch { return {}; }
+  }
+
+  function savePerfHistory() {
+    try {
+      localStorage.setItem(PERF_STORAGE_KEY, JSON.stringify(S.perfHistory));
+    } catch {}
+  }
+
+  S.perfHistory = loadPerfHistory();
 
   // ─── Utilities ─────────────────────────────────────────────────────────────
   const $ = id => document.getElementById(id);
@@ -2381,14 +2408,20 @@
 
   function pushPerfHistory(perf) {
     const now = Date.now();
+    const cutoff = now - PERF_WINDOW_MS;
     for (const [key, data] of Object.entries(perf)) {
       if (!S.perfHistory[key]) S.perfHistory[key] = { times:[], avgs:[], p95s:[] };
       const h = S.perfHistory[key];
+      const last = h.times.length ? h.times[h.times.length - 1] : 0;
+      if (now - last < PERF_MIN_INTERVAL_MS) continue;
       h.times.push(now);
       h.avgs.push(data.avg_ms || 0);
       h.p95s.push(data.p95   || 0);
-      while (h.times.length > PERF_MAX) { h.times.shift(); h.avgs.shift(); h.p95s.shift(); }
+      while (h.times.length && h.times[0] < cutoff) {
+        h.times.shift(); h.avgs.shift(); h.p95s.shift();
+      }
     }
+    savePerfHistory();
   }
 
   async function loadDiagnostics() {
@@ -2867,24 +2900,28 @@
     const W = rect.width;
     const H = rect.height;
     const PAD_L = 42;
+    const PAD_B = 16;
     const CW = W - PAD_L;
+    const CH = H - PAD_B;
     ctx.clearRect(0, 0, W, H);
 
     const v1 = h1 ? h1.avgs : [];
     const v2 = h2 ? h2.avgs : [];
     if (!v1.length && !v2.length) return;
 
+    const times = h1 ? h1.times : (h2 ? h2.times : []);
+    const maxPts = Math.max(v1.length, v2.length, 2);
     const allV  = [...v1, ...v2, thresh1, thresh2].filter(Boolean);
     const maxV  = Math.max(...allV) * 1.15 || 1;
-    const xStep = CW / (PERF_MAX - 1);
+    const xStep = CW / (maxPts - 1);
 
-    function toY(v) { return H - (v / maxV) * (H - 6) - 3; }
+    function toY(v) { return CH - (v / maxV) * (CH - 6) - 3; }
 
-    drawYAxis(ctx, maxV, H, PAD_L, v => fmtMs(v));
+    drawYAxis(ctx, maxV, CH, PAD_L, v => fmtMs(v));
 
     function drawLine(vals, color, glowColor) {
       if (!vals.length) return;
-      const start = PAD_L + (PERF_MAX - vals.length) * xStep;
+      const start = PAD_L + (maxPts - vals.length) * xStep;
       if (vals.length >= 2) {
         ctx.beginPath();
         ctx.moveTo(start, toY(vals[0]));
@@ -2910,6 +2947,16 @@
 
     drawLine(v1, '#4ade80', 'rgba(74,222,128,0.6)');
     drawLine(v2, '#60a5fa', 'rgba(96,165,250,0.6)');
+
+    if (times.length >= 2) {
+      ctx.fillStyle = '#565a7e';
+      ctx.font = '10px JetBrains Mono, monospace';
+      const fmtTime = ts => new Date(ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      ctx.textAlign = 'start';
+      ctx.fillText(fmtTime(times[0]), PAD_L, H - 2);
+      ctx.textAlign = 'end';
+      ctx.fillText(fmtTime(times[times.length - 1]), W - 2, H - 2);
+    }
   }
 
   function drawSingleChart(canvas, history, threshold, lineColor) {
@@ -2929,8 +2976,9 @@
     const vals    = history.avgs;
     const allV    = [...vals, threshold];
     const maxV    = Math.max(...allV) * 1.15 || 1;
-    const xStep   = CW / (PERF_MAX - 1);
-    const start   = PAD_L + (PERF_MAX - vals.length) * xStep;
+    const nPts    = Math.max(vals.length, 2);
+    const xStep   = CW / (nPts - 1);
+    const start   = PAD_L;
 
     function toY(v) { return H - (v / maxV) * (H - 6) - 3; }
 
