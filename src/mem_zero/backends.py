@@ -30,6 +30,9 @@ class LLMBackend(ABC):
     def is_degraded(self) -> bool:
         return False
 
+    async def health_ping(self) -> bool:
+        return True
+
     async def close(self) -> None:  # noqa: B027
         pass
 
@@ -125,6 +128,13 @@ class OllamaBackend(LLMBackend):
         )
         resp.raise_for_status()
         return resp.json()["embeddings"]
+
+    async def health_ping(self) -> bool:
+        try:
+            resp = await self._http.get("/api/tags", timeout=5.0)
+            return resp.status_code == 200
+        except Exception:
+            return False
 
     async def close(self) -> None:
         await self._http.aclose()
@@ -240,6 +250,9 @@ class FallbackBackend(LLMBackend):
                 self._stats.inc("backend.fallback")
             self._using_fallback = True
             return await self._get_fallback().embed(texts)
+
+    async def health_ping(self) -> bool:
+        return await self._primary.health_ping()
 
     async def close(self) -> None:
         await self._primary.close()

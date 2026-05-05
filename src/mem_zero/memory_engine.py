@@ -310,6 +310,7 @@ class MemoryEngine:
     ) -> list[str]:
         self._stats.inc("add_memory")
         self._stats.inc_project(project_slug, "add_memory")
+        self._stats.record_activity(project_slug)
         t0 = time.monotonic()
         collection = await self._ensure_collection(project_slug)
         now = time.time()
@@ -399,6 +400,7 @@ class MemoryEngine:
     ) -> list[MemoryRecord]:
         self._stats.inc("search")
         self._stats.inc_project(project_slug, "search")
+        self._stats.record_activity(project_slug)
         t0 = time.monotonic()
         collection = await self._ensure_collection(project_slug)
         results = await self.search_in_collection(collection, query, top_k=top_k)
@@ -755,6 +757,7 @@ class MemoryEngine:
                         slug=slug,
                         collection=col.name,
                         memory_count=info.points_count or 0,
+                        last_updated=self._stats.get_last_activity(slug),
                     )
                 )
         return projects

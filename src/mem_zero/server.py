@@ -139,13 +139,18 @@ def _validated_slug(slug: str) -> str:
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
+async def health() -> dict[str, object]:
+    services: dict[str, bool] = {}
     try:
         await engine.health_check()
-        return {"status": "ok", "version": app.version}
-    except Exception as exc:
-        logger.exception("Health check failed")
-        raise HTTPException(status_code=503, detail="Service unavailable") from exc
+        services["qdrant"] = True
+    except Exception:
+        services["qdrant"] = False
+    services["llm"] = await backend.health_ping()
+    overall = services["qdrant"] and services["llm"]
+    if not overall:
+        raise HTTPException(status_code=503, detail="Service degraded")
+    return {"status": "ok", "version": app.version, "services": services}
 
 
 @app.get("/debug/config")
@@ -274,6 +279,11 @@ async def consolidate_memories(
 async def get_diagnostics() -> dict[str, object]:
     if not config.diagnostics_enabled:
         raise HTTPException(status_code=404, detail="Diagnostics disabled")
+    try:
+        projects = await engine.list_projects()
+        stats.record_daily_snapshot({p.slug: p.memory_count for p in projects})
+    except Exception:
+        pass
     return stats.snapshot()
 
 

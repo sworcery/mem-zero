@@ -27,3 +27,4 @@ class ProjectInfo(BaseModel):
     slug: str
     collection: str
     memory_count: int
+    last_updated: float | None = None

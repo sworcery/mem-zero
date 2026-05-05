@@ -285,6 +285,13 @@
       min-width: 24px;
       text-align: center;
     }
+    .proj-ago {
+      font-size: 9px;
+      color: var(--faint);
+      opacity: 0.7;
+      display: block;
+      text-align: center;
+    }
 
     #sidebar-footer {
       padding: 10px 14px;
@@ -587,6 +594,26 @@
     .stat-value.yellow { color: var(--yellow); text-shadow: var(--yellow-glow); }
     .stat-value.orange { color: var(--orange); text-shadow: var(--orange-glow); }
 
+    .ov-status-bar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 6px 4px;
+      font-size: 11px;
+      color: var(--faint);
+    }
+    .ov-status-item { display: flex; align-items: center; gap: 5px; }
+    .ov-status-sep { color: var(--border); }
+    .conn-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--faint);
+    }
+    .conn-dot.ok  { background: var(--green); box-shadow: var(--green-glow); }
+    .conn-dot.err { background: var(--red); box-shadow: 0 0 8px rgba(239,68,68,0.4); }
+
     .overview-mid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -619,6 +646,23 @@
       width: 100%;
       height: 100%;
       display: block;
+    }
+
+    .chart-legend {
+      display: flex;
+      gap: 14px;
+      justify-content: flex-end;
+      padding: 4px 8px 0;
+      font-size: 11px;
+      color: var(--faint);
+    }
+    .legend-swatch {
+      display: inline-block;
+      width: 12px;
+      height: 3px;
+      border-radius: 1px;
+      vertical-align: middle;
+      margin-right: 5px;
     }
 
     .ops-log {
@@ -665,6 +709,10 @@
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
       gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .overview-growth {
       flex-shrink: 0;
     }
 
@@ -1417,11 +1465,22 @@
         </div>
       </div>
 
+      <div class="ov-status-bar" id="ov-status-bar">
+        <span class="ov-status-item"><span class="conn-dot" id="ov-dot-qdrant"></span> Qdrant</span>
+        <span class="ov-status-item"><span class="conn-dot" id="ov-dot-llm"></span> LLM</span>
+        <span class="ov-status-sep">|</span>
+        <span class="ov-status-item" id="ov-embed-info"></span>
+      </div>
+
       <div class="overview-mid">
         <div class="ov-card">
           <div class="ov-card-title">Latency — add_memory &amp; search_memory</div>
           <div class="chart-wrap">
             <canvas id="ov-chart"></canvas>
+          </div>
+          <div class="chart-legend">
+            <span><span class="legend-swatch" style="background:#4ade80"></span>add_memory</span>
+            <span><span class="legend-swatch" style="background:#60a5fa"></span>search</span>
           </div>
         </div>
         <div class="ov-card">
@@ -1460,6 +1519,15 @@
           <div class="ov-card-title">Error Counters</div>
           <div id="ov-errors">
             <div style="color:var(--faint);font-size:12px">No data</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="overview-growth">
+        <div class="ov-card">
+          <div class="ov-card-title">Memory Growth (30d)</div>
+          <div class="chart-wrap" style="height:120px">
+            <canvas id="ov-growth-chart"></canvas>
           </div>
         </div>
       </div>
@@ -1702,6 +1770,7 @@
     searchQuery:   '',
     userId:        'default',
     health:        null,
+    services:      {},
     diagData:      null,
     perfHistory:   {}, // key -> {times, adds, searches}
     opsLog:        [],  // recent ops for display
@@ -1881,7 +1950,7 @@
       <div class="proj-item${p.slug === S.activeSlug ? ' active' : ''}" data-slug="${esc(p.slug)}">
         <span class="proj-tilde">~</span>
         <span class="proj-name">${esc(p.slug)}</span>
-        <span class="proj-count">${p.memory_count}</span>
+        <span class="proj-count">${p.memory_count}${p.last_updated ? ' <span class="proj-ago">' + relTime(p.last_updated) + '</span>' : ''}</span>
       </div>
     `).join('');
   }
@@ -2242,6 +2311,7 @@
     try {
       const res = await API.health();
       S.health = 'ok';
+      S.services = res.services || {};
       $('status-dot').className  = 'status-dot ok';
       $('status-text').textContent = 'operational';
       if (res && res.version) {
@@ -2251,9 +2321,11 @@
       }
     } catch (_) {
       S.health = 'err';
+      S.services = {};
       $('status-dot').className  = 'status-dot err';
       $('status-text').textContent = 'unreachable';
     }
+    renderOvStatus();
   }
 
   // ─── Config load ─────────────────────────────────────────────────────────────
@@ -2310,6 +2382,20 @@
     }
   }
 
+  function renderOvStatus() {
+    const svc = S.services || {};
+    const qd = $('ov-dot-qdrant');
+    const llm = $('ov-dot-llm');
+    if (qd) qd.className = 'conn-dot ' + (svc.qdrant ? 'ok' : (S.health === 'ok' ? 'ok' : 'err'));
+    if (llm) llm.className = 'conn-dot ' + (svc.llm ? 'ok' : (S.health === 'ok' ? 'ok' : 'err'));
+    const info = $('ov-embed-info');
+    if (info && cfgCache) {
+      const model = cfgCache.embedder_model || cfgCache.openai_embed_model || '—';
+      const dims = cfgCache.embedding_dimensions || '—';
+      info.textContent = model + ' (' + dims + 'd)';
+    }
+  }
+
   // ─── Overview rendering ───────────────────────────────────────────────────────
   async function renderOverview() {
     await loadDiagnostics();
@@ -2328,6 +2414,7 @@
       renderOvPct();
       renderOvCollections();
       renderOvErrors();
+      renderOvGrowth();
     } else {
       $('ov-diag-disabled').style.display = '';
       $('ov-searches').textContent    = '—';
@@ -2424,6 +2511,69 @@
         <span class="${n === 0 ? 'err-zero' : 'err-nonzero'}">${fmtN(n)}</span>
       </div>`;
     }).join('');
+  }
+
+  function renderOvGrowth() {
+    const canvas = $('ov-growth-chart');
+    if (!canvas) return;
+    const snaps = S.diagData && S.diagData.daily_snapshots || [];
+    if (!snaps.length) return;
+
+    const dpr  = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width  = rect.width  * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const W = rect.width;
+    const H = rect.height;
+    const PAD_B = 18;
+    const CH = H - PAD_B;
+    ctx.clearRect(0, 0, W, H);
+
+    const totals = snaps.map(s => s.total || 0);
+    const maxV = Math.max(...totals) * 1.1 || 1;
+    const xStep = snaps.length > 1 ? W / (snaps.length - 1) : W / 2;
+
+    function toY(v) { return CH - (v / maxV) * (CH - 6) - 3; }
+
+    if (totals.length >= 2) {
+      ctx.beginPath();
+      ctx.moveTo(0, toY(totals[0]));
+      for (let i = 1; i < totals.length; i++) ctx.lineTo(i * xStep, toY(totals[i]));
+      ctx.lineTo((totals.length - 1) * xStep, CH);
+      ctx.lineTo(0, CH);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(74,222,128,0.1)';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(0, toY(totals[0]));
+      for (let i = 1; i < totals.length; i++) ctx.lineTo(i * xStep, toY(totals[i]));
+      ctx.strokeStyle = '#4ade80';
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = 'rgba(74,222,128,0.6)';
+      ctx.shadowBlur = 6;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    const lx = (totals.length - 1) * xStep;
+    const ly = toY(totals[totals.length - 1]);
+    ctx.beginPath();
+    ctx.arc(lx, ly, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#4ade80';
+    ctx.shadowColor = 'rgba(74,222,128,0.6)';
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = 'var(--faint)';
+    ctx.font = '10px JetBrains Mono, monospace';
+    ctx.textAlign = 'start';
+    ctx.fillText(snaps[0].date.slice(5), 2, H - 2);
+    ctx.textAlign = 'end';
+    ctx.fillText(snaps[snaps.length - 1].date.slice(5), W - 2, H - 2);
   }
 
   // ─── Diagnostics tab rendering ────────────────────────────────────────────────

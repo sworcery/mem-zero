@@ -26,6 +26,12 @@ class _NullStats:
     def record_latency(self, key: str, ms: float) -> None:
         pass
 
+    def record_activity(self, project: str) -> None:
+        pass
+
+    def get_last_activity(self, project: str) -> float | None:
+        return None
+
     def record_search_scores(self, scores: list[float]) -> None:
         pass
 
@@ -74,6 +80,7 @@ class DiagnosticStats:
 
         self._recent_errors: deque[dict[str, Any]] = deque(maxlen=_MAX_RECENT_ERRORS)
         self._project_counters: dict[str, dict[str, int]] = {}
+        self._daily_snapshots: list[dict[str, Any]] = []
 
         self._load()
 
@@ -97,6 +104,7 @@ class DiagnosticStats:
             for err in data.get("recent_errors", []):
                 self._recent_errors.append(err)
             self._project_counters = data.get("project_counters", {})
+            self._daily_snapshots = data.get("daily_snapshots", [])
             logger.info("Loaded diagnostics from %s", self._path)
         except Exception:
             logger.warning(
@@ -116,6 +124,7 @@ class DiagnosticStats:
             "search_score_buckets": self._search_score_buckets,
             "recent_errors": list(self._recent_errors),
             "project_counters": self._project_counters,
+            "daily_snapshots": self._daily_snapshots,
         }
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -133,6 +142,25 @@ class DiagnosticStats:
             self._project_counters[project] = {}
         pc = self._project_counters[project]
         pc[key] = pc.get(key, 0) + amount
+
+    def record_activity(self, project: str) -> None:
+        if project not in self._project_counters:
+            self._project_counters[project] = {}
+        self._project_counters[project]["last_activity_ts"] = time.time()
+
+    def get_last_activity(self, project: str) -> float | None:
+        pc = self._project_counters.get(project, {})
+        return pc.get("last_activity_ts")
+
+    def record_daily_snapshot(self, projects: dict[str, int]) -> None:
+        today = time.strftime("%Y-%m-%d")
+        total = sum(projects.values())
+        entry = {"date": today, "total": total, "projects": projects}
+        if self._daily_snapshots and self._daily_snapshots[-1].get("date") == today:
+            self._daily_snapshots[-1] = entry
+        else:
+            self._daily_snapshots.append(entry)
+        self._daily_snapshots = self._daily_snapshots[-90:]
 
     def record_latency(self, key: str, ms: float) -> None:
         if key not in self._latencies:
@@ -320,6 +348,7 @@ class DiagnosticStats:
                 slug: dict(counters)
                 for slug, counters in self._project_counters.items()
             },
+            "daily_snapshots": self._daily_snapshots[-30:],
         }
 
     def reset(self) -> None:
