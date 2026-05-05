@@ -2527,29 +2527,33 @@
     ctx.scale(dpr, dpr);
     const W = rect.width;
     const H = rect.height;
+    const PAD_L = 36;
     const PAD_B = 18;
+    const CW = W - PAD_L;
     const CH = H - PAD_B;
     ctx.clearRect(0, 0, W, H);
 
     const totals = snaps.map(s => s.total || 0);
     const maxV = Math.max(...totals) * 1.1 || 1;
-    const xStep = snaps.length > 1 ? W / (snaps.length - 1) : W / 2;
+    const xStep = snaps.length > 1 ? CW / (snaps.length - 1) : CW / 2;
 
     function toY(v) { return CH - (v / maxV) * (CH - 6) - 3; }
 
+    drawYAxis(ctx, maxV, CH, PAD_L, v => Math.round(v).toString());
+
     if (totals.length >= 2) {
       ctx.beginPath();
-      ctx.moveTo(0, toY(totals[0]));
-      for (let i = 1; i < totals.length; i++) ctx.lineTo(i * xStep, toY(totals[i]));
-      ctx.lineTo((totals.length - 1) * xStep, CH);
-      ctx.lineTo(0, CH);
+      ctx.moveTo(PAD_L, toY(totals[0]));
+      for (let i = 1; i < totals.length; i++) ctx.lineTo(PAD_L + i * xStep, toY(totals[i]));
+      ctx.lineTo(PAD_L + (totals.length - 1) * xStep, CH);
+      ctx.lineTo(PAD_L, CH);
       ctx.closePath();
       ctx.fillStyle = 'rgba(74,222,128,0.1)';
       ctx.fill();
 
       ctx.beginPath();
-      ctx.moveTo(0, toY(totals[0]));
-      for (let i = 1; i < totals.length; i++) ctx.lineTo(i * xStep, toY(totals[i]));
+      ctx.moveTo(PAD_L, toY(totals[0]));
+      for (let i = 1; i < totals.length; i++) ctx.lineTo(PAD_L + i * xStep, toY(totals[i]));
       ctx.strokeStyle = '#4ade80';
       ctx.lineWidth = 1.5;
       ctx.shadowColor = 'rgba(74,222,128,0.6)';
@@ -2558,7 +2562,7 @@
       ctx.shadowBlur = 0;
     }
 
-    const lx = (totals.length - 1) * xStep;
+    const lx = PAD_L + (totals.length - 1) * xStep;
     const ly = toY(totals[totals.length - 1]);
     ctx.beginPath();
     ctx.arc(lx, ly, 3, 0, Math.PI * 2);
@@ -2568,10 +2572,10 @@
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    ctx.fillStyle = 'var(--faint)';
+    ctx.fillStyle = '#565a7e';
     ctx.font = '10px JetBrains Mono, monospace';
     ctx.textAlign = 'start';
-    ctx.fillText(snaps[0].date.slice(5), 2, H - 2);
+    ctx.fillText(snaps[0].date.slice(5), PAD_L + 2, H - 2);
     ctx.textAlign = 'end';
     ctx.fillText(snaps[snaps.length - 1].date.slice(5), W - 2, H - 2);
   }
@@ -2793,6 +2797,25 @@
   }
 
   // ─── Canvas charts ─────────────────────────────────────────────────────────────
+  function drawYAxis(ctx, maxV, H, PAD_L, fmtLabel) {
+    const ticks = 3;
+    ctx.font = '9px JetBrains Mono, monospace';
+    ctx.fillStyle = '#565a7e';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i <= ticks; i++) {
+      const v = (maxV / ticks) * i;
+      const y = H - (v / maxV) * (H - 6) - 3;
+      ctx.fillText(fmtLabel(v), PAD_L - 4, y);
+      ctx.beginPath();
+      ctx.moveTo(PAD_L, y);
+      ctx.lineTo(PAD_L + 4, y);
+      ctx.strokeStyle = '#32344a';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+  }
+
   function drawDualChart(canvas, h1, h2, thresh1, thresh2) {
     if (!canvas) return;
     const dpr  = window.devicePixelRatio || 1;
@@ -2803,6 +2826,8 @@
     ctx.scale(dpr, dpr);
     const W = rect.width;
     const H = rect.height;
+    const PAD_L = 42;
+    const CW = W - PAD_L;
     ctx.clearRect(0, 0, W, H);
 
     const v1 = h1 ? h1.avgs : [];
@@ -2811,13 +2836,15 @@
 
     const allV  = [...v1, ...v2, thresh1, thresh2].filter(Boolean);
     const maxV  = Math.max(...allV) * 1.15 || 1;
-    const xStep = W / (PERF_MAX - 1);
+    const xStep = CW / (PERF_MAX - 1);
 
     function toY(v) { return H - (v / maxV) * (H - 6) - 3; }
 
+    drawYAxis(ctx, maxV, H, PAD_L, v => fmtMs(v));
+
     function drawLine(vals, color, glowColor) {
       if (!vals.length) return;
-      const start = (PERF_MAX - vals.length) * xStep;
+      const start = PAD_L + (PERF_MAX - vals.length) * xStep;
       if (vals.length >= 2) {
         ctx.beginPath();
         ctx.moveTo(start, toY(vals[0]));
@@ -2855,22 +2882,26 @@
     ctx.scale(dpr, dpr);
     const W = rect.width;
     const H = rect.height;
+    const PAD_L = 42;
+    const CW = W - PAD_L;
     ctx.clearRect(0, 0, W, H);
 
     const vals    = history.avgs;
     const allV    = [...vals, threshold];
     const maxV    = Math.max(...allV) * 1.15 || 1;
-    const xStep   = W / (PERF_MAX - 1);
-    const start   = (PERF_MAX - vals.length) * xStep;
+    const xStep   = CW / (PERF_MAX - 1);
+    const start   = PAD_L + (PERF_MAX - vals.length) * xStep;
 
     function toY(v) { return H - (v / maxV) * (H - 6) - 3; }
+
+    drawYAxis(ctx, maxV, H, PAD_L, v => fmtMs(v));
 
     // threshold dashed line
     const ty = toY(threshold);
     ctx.setLineDash([5,4]);
     ctx.strokeStyle = 'rgba(239,68,68,0.5)';
     ctx.lineWidth   = 1;
-    ctx.beginPath(); ctx.moveTo(0, ty); ctx.lineTo(W, ty); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(PAD_L, ty); ctx.lineTo(W, ty); ctx.stroke();
     ctx.setLineDash([]);
 
     // fill
