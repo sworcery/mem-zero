@@ -94,40 +94,45 @@ class OllamaBackend(LLMBackend):
         llm_model: str = "qwen2.5:7b",
         embed_model: str = "nomic-embed-text",
         dimensions: int = 768,
+        max_concurrent: int = 2,
     ) -> None:
         self._http = httpx.AsyncClient(base_url=base_url, timeout=30.0)
         self._llm_model = llm_model
         self._embed_model = embed_model
         self._dims = dimensions
+        self._semaphore = asyncio.Semaphore(max_concurrent)
+        logger.info("Ollama backend: max_concurrent=%d", max_concurrent)
 
     @property
     def embedding_dimensions(self) -> int:
         return self._dims
 
     async def generate(self, system: str, user: str) -> str:
-        resp = await self._http.post(
-            "/api/chat",
-            json={
-                "model": self._llm_model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "stream": False,
-                "format": "json",
-            },
-            timeout=120.0,
-        )
-        resp.raise_for_status()
-        return resp.json()["message"]["content"]
+        async with self._semaphore:
+            resp = await self._http.post(
+                "/api/chat",
+                json={
+                    "model": self._llm_model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    "stream": False,
+                    "format": "json",
+                },
+                timeout=120.0,
+            )
+            resp.raise_for_status()
+            return resp.json()["message"]["content"]
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        resp = await self._http.post(
-            "/api/embed",
-            json={"model": self._embed_model, "input": texts},
-        )
-        resp.raise_for_status()
-        return resp.json()["embeddings"]
+        async with self._semaphore:
+            resp = await self._http.post(
+                "/api/embed",
+                json={"model": self._embed_model, "input": texts},
+            )
+            resp.raise_for_status()
+            return resp.json()["embeddings"]
 
     async def health_ping(self) -> bool:
         try:
@@ -281,6 +286,7 @@ def create_backend(
             llm_model=config.llm_model,
             embed_model=config.embedder_model,
             dimensions=config.embedding_dimensions,
+            max_concurrent=config.ollama_max_concurrent,
         )
 
         def _make_fallback() -> BundledBackend:

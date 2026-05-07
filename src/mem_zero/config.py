@@ -40,6 +40,7 @@ class Config:
     llm_model: str = "qwen2.5:7b"
     embedder_model: str = "nomic-embed-text"
     embedding_dimensions: int = 768
+    ollama_max_concurrent: int = 2
 
     # Bundled settings (used when llm_backend=bundled, also used as fallback for ollama)
     bundled_model_path: str = "/mem-zero/storage/models/qwen2.5-3b-instruct-q4_k_m.gguf"
@@ -102,6 +103,7 @@ class Config:
             llm_model=_str("LLM_MODEL", "qwen2.5:7b"),
             embedder_model=_str("EMBEDDER_MODEL", "nomic-embed-text"),
             embedding_dimensions=_int("EMBEDDER_DIMENSIONS", 768),
+            ollama_max_concurrent=_int("OLLAMA_MAX_CONCURRENT", 2),
             bundled_model_path=_str(
                 "BUNDLED_MODEL_PATH",
                 "/mem-zero/storage/models/qwen2.5-3b-instruct-q4_k_m.gguf",
