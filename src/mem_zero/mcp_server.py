@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
+from datetime import datetime, timezone
 
 import anyio
 from fastapi import APIRouter, Request, Response
@@ -40,6 +41,14 @@ def _get_context() -> tuple[str, str]:
     return project, user
 
 
+def _format_record(record: dict) -> dict:
+    for key in ("created_at", "updated_at"):
+        ts = record.get(key)
+        if isinstance(ts, (int, float)) and ts > 0:
+            record[key] = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+    return record
+
+
 @mcp.tool(description="Store a memory for the current project.")
 async def add_memories(text: str) -> str:
     project, user = _get_context()
@@ -53,7 +62,7 @@ async def search_memory(query: str, top_k: int = 10) -> str:
     project, _ = _get_context()
     engine = _get_engine()
     results = await engine.search(project, query, top_k=top_k)
-    return json.dumps([r.model_dump() for r in results])
+    return json.dumps([_format_record(r.model_dump()) for r in results])
 
 
 @mcp.tool(description="List all memories stored for the current project.")
@@ -61,7 +70,7 @@ async def list_memories() -> str:
     project, _ = _get_context()
     engine = _get_engine()
     results = await engine.list_all(project)
-    return json.dumps([r.model_dump() for r in results])
+    return json.dumps([_format_record(r.model_dump()) for r in results])
 
 
 @mcp.tool(description="Delete specific memories by their IDs.")
