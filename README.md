@@ -37,6 +37,45 @@ claude mcp add mem-zero --transport http \
   -s local
 ```
 
+### CLI
+
+```bash
+pip install mem-zero
+mem-zero-cli --url http://your-host:8765 --api-key your-key projects
+```
+
+The CLI provides direct terminal access to all memory operations:
+
+```bash
+# List projects
+mem-zero-cli projects
+
+# Add a memory
+mem-zero-cli add my-project "Chose PostgreSQL over Redis for session storage"
+
+# Pipe text from stdin
+echo "User prefers dark mode" | mem-zero-cli add my-project -
+
+# Search
+mem-zero-cli search my-project "database decision"
+
+# List memories
+mem-zero-cli list my-project
+
+# Export/import for backup and migration
+mem-zero-cli export my-project -o backup.json
+mem-zero-cli import backup.json --project new-project
+
+# Health check
+mem-zero-cli health
+
+# Diagnostics
+mem-zero-cli stats
+mem-zero-cli stats --project my-project
+```
+
+All commands support `--json` for machine-readable output. Run `mem-zero-cli --help` for full usage.
+
 ### Any MCP client (Claude Desktop, Cursor, Windsurf, etc.)
 
 Add the MCP server URL to your client's configuration:
@@ -171,6 +210,24 @@ The dashboard has its own basic auth (`DASHBOARD_USER`/`DASHBOARD_PASS`) since b
 | `list_memories()` | List all memories for the project |
 | `delete_memories(memory_ids)` | Delete specific memories by ID |
 | `delete_all_memories()` | Delete all memories for the project |
+
+## Export and import
+
+Back up project memories to a JSON file, or migrate between servers:
+
+```bash
+# Export via CLI
+mem-zero-cli export my-project -o backup.json
+
+# Import to same or different server
+mem-zero-cli import backup.json
+mem-zero-cli import backup.json --project different-project
+
+# Export via REST
+curl http://your-host:8765/api/v1/projects/my-project/memories?limit=1000 > backup.json
+```
+
+The export format includes project metadata, timestamps, and all memory content. Importing re-processes text through the LLM pipeline (extraction and dedup), so imported memories are properly deduplicated against existing content.
 
 ## Best practices
 
