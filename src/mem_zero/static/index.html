@@ -590,7 +590,7 @@
       font-weight: 600;
       letter-spacing: 0.8px;
       text-transform: uppercase;
-      color: var(--faint);
+      color: var(--dim);
       margin-bottom: 6px;
     }
 
@@ -615,7 +615,7 @@
       gap: 14px;
       padding: 6px 4px;
       font-size: 13px;
-      color: var(--faint);
+      color: var(--dim);
     }
     .ov-status-item { display: flex; align-items: center; gap: 5px; }
     .ov-status-sep { color: var(--border); }
@@ -648,7 +648,7 @@
       font-weight: 600;
       letter-spacing: 0.8px;
       text-transform: uppercase;
-      color: var(--faint);
+      color: var(--dim);
       margin-bottom: 10px;
     }
 
@@ -669,7 +669,7 @@
       justify-content: flex-end;
       padding: 4px 8px 0;
       font-size: 13px;
-      color: var(--faint);
+      color: var(--dim);
     }
     .legend-swatch {
       display: inline-block;
@@ -699,7 +699,7 @@
 
     .ops-log-item:last-child { border-bottom: none; }
 
-    .ops-time { color: var(--faint); flex-shrink: 0; min-width: 42px; }
+    .ops-time { color: var(--dim); flex-shrink: 0; min-width: 42px; }
 
     .ops-tag {
       font-size: 10px;
@@ -737,11 +737,11 @@
     }
 
     .pct-table th {
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 600;
       letter-spacing: 0.5px;
       text-transform: uppercase;
-      color: var(--faint);
+      color: var(--dim);
       text-align: left;
       padding: 4px 6px 8px;
       border-bottom: 1px solid var(--border);
@@ -771,7 +771,7 @@
     .bar-item:last-child { margin-bottom: 0; }
 
     .bar-name {
-      font-size: 11px;
+      font-size: 13px;
       color: var(--dim);
       width: 100px;
       overflow: hidden;
@@ -795,8 +795,8 @@
     }
 
     .bar-val {
-      font-size: 11px;
-      color: var(--faint);
+      font-size: 13px;
+      color: var(--dim);
       min-width: 28px;
       text-align: right;
     }
@@ -807,7 +807,7 @@
       align-items: center;
       padding: 5px 0;
       border-bottom: 1px solid var(--border);
-      font-size: 12px;
+      font-size: 13px;
     }
 
     .err-counter:last-child { border-bottom: none; }
@@ -2645,8 +2645,8 @@
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    ctx.fillStyle = '#565a7e';
-    ctx.font = '11px JetBrains Mono, monospace';
+    ctx.fillStyle = '#9aa5ce';
+    ctx.font = '13px JetBrains Mono, monospace';
     ctx.textAlign = 'start';
     ctx.fillText(snaps[0].date.slice(5), PAD_L + 2, H - 2);
     ctx.textAlign = 'end';
@@ -2872,8 +2872,8 @@
   // ─── Canvas charts ─────────────────────────────────────────────────────────────
   function drawYAxis(ctx, maxV, H, PAD_L, fmtLabel) {
     const ticks = 3;
-    ctx.font = '11px JetBrains Mono, monospace';
-    ctx.fillStyle = '#565a7e';
+    ctx.font = '13px JetBrains Mono, monospace';
+    ctx.fillStyle = '#9aa5ce';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     for (let i = 0; i <= ticks; i++) {
@@ -2949,8 +2949,8 @@
     drawLine(v2, '#60a5fa', 'rgba(96,165,250,0.6)');
 
     if (times.length >= 2) {
-      ctx.fillStyle = '#565a7e';
-      ctx.font = '11px JetBrains Mono, monospace';
+      ctx.fillStyle = '#9aa5ce';
+      ctx.font = '13px JetBrains Mono, monospace';
       const fmtTime = ts => new Date(ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
       ctx.textAlign = 'start';
       ctx.fillText(fmtTime(times[0]), PAD_L, H - 2);
