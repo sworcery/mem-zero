@@ -119,6 +119,18 @@ class OllamaBackend(LLMBackend):
                     ],
                     "stream": False,
                     "format": "json",
+                    # Keep the model resident so back-to-back calls don't pay a
+                    # cold reload (the source of the worst-case latency spikes).
+                    "keep_alive": "30m",
+                    "options": {
+                        # Match the other backends; low temperature is better for
+                        # the JSON-constrained extraction/dedup responses.
+                        "temperature": 0.1,
+                        # Headroom so a long existing-memories block can't
+                        # truncate the response mid-JSON.
+                        "num_ctx": 8192,
+                        "num_predict": 1024,
+                    },
                 },
                 timeout=120.0,
             )
@@ -129,7 +141,11 @@ class OllamaBackend(LLMBackend):
         async with self._semaphore:
             resp = await self._http.post(
                 "/api/embed",
-                json={"model": self._embed_model, "input": texts},
+                json={
+                    "model": self._embed_model,
+                    "input": texts,
+                    "keep_alive": "30m",
+                },
             )
             resp.raise_for_status()
             return resp.json()["embeddings"]
