@@ -252,17 +252,27 @@ class MemoryEngine:
             return "add", None, None
         try:
             result = json.loads(raw)
-            action = result.get("action", "add")
-            self._stats.inc(f"dedup.{action}")
-            if action == "update":
-                return "update", result.get("id"), result.get("text", fact)
-            if action == "skip":
-                return "skip", None, None
-            return "add", None, None
         except json.JSONDecodeError:
             self._stats.inc("dedup.json_failures")
             self._stats.inc("dedup.add")
             return "add", None, None
+        # Ollama's json mode guarantees valid JSON, not an object shape — a
+        # bare array/scalar (e.g. ["add"]) would crash result.get() below.
+        if not isinstance(result, dict):
+            self._stats.inc("dedup.add")
+            return "add", None, None
+        action = result.get("action", "add")
+        update_id = result.get("id")
+        # An "update" with no id would otherwise fall through both branches in
+        # add() and silently drop the fact; treat it as a plain add.
+        if action == "update" and not update_id:
+            action = "add"
+        self._stats.inc(f"dedup.{action}")
+        if action == "update":
+            return "update", update_id, result.get("text", fact)
+        if action == "skip":
+            return "skip", None, None
+        return "add", None, None
 
     async def search_in_collection(
         self, collection: str, query: str, top_k: int = 10, user_id: str | None = None

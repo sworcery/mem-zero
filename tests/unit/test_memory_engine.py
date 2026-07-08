@@ -6,6 +6,7 @@ import pytest
 
 from mem_zero.config import Config
 from mem_zero.memory_engine import MemoryEngine, validate_memory_id
+from mem_zero.models import MemoryRecord
 
 
 @pytest.fixture
@@ -215,6 +216,84 @@ class TestDedupDegraded:
         mock_qdrant.query_points.return_value = MagicMock(points=[])
         action, _, _ = await engine._dedup_fact("test_proj", "new fact", "john")
         assert action == "add"
+
+
+class TestDedupMalformedResponses:
+    """Dedup must survive valid-but-unexpected LLM JSON without crashing or
+    silently dropping the fact. Ollama's json mode enforces valid JSON, not a
+    particular shape, so these responses are all reachable in production."""
+
+    @pytest.fixture
+    def existing(self) -> list[MemoryRecord]:
+        return [
+            MemoryRecord(
+                id="550e8400-e29b-41d4-a716-446655440000",
+                text="existing memory",
+                user_id="john",
+                created_at=0.0,
+                updated_at=0.0,
+            )
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("raw", ['["add"]', '"skip"', "42", "true"])
+    async def test_non_object_json_defaults_to_add(
+        self,
+        engine: MemoryEngine,
+        mock_backend: AsyncMock,
+        existing: list[MemoryRecord],
+        raw: str,
+    ) -> None:
+        mock_backend.generate.return_value = raw
+        with patch.object(
+            engine, "search_in_collection", new_callable=AsyncMock,
+            return_value=existing,
+        ):
+            action, update_id, _ = await engine._dedup_fact(
+                "test_proj", "new fact", "john"
+            )
+        assert action == "add"
+        assert update_id is None
+
+    @pytest.mark.asyncio
+    async def test_update_without_id_becomes_add(
+        self,
+        engine: MemoryEngine,
+        mock_backend: AsyncMock,
+        existing: list[MemoryRecord],
+    ) -> None:
+        mock_backend.generate.return_value = '{"action": "update"}'
+        with patch.object(
+            engine, "search_in_collection", new_callable=AsyncMock,
+            return_value=existing,
+        ):
+            action, update_id, _ = await engine._dedup_fact(
+                "test_proj", "new fact", "john"
+            )
+        assert action == "add"
+        assert update_id is None
+
+    @pytest.mark.asyncio
+    async def test_valid_update_is_preserved(
+        self,
+        engine: MemoryEngine,
+        mock_backend: AsyncMock,
+        existing: list[MemoryRecord],
+    ) -> None:
+        mock_backend.generate.return_value = (
+            '{"action": "update", "id": "550e8400-e29b-41d4-a716-446655440000",'
+            ' "text": "merged text"}'
+        )
+        with patch.object(
+            engine, "search_in_collection", new_callable=AsyncMock,
+            return_value=existing,
+        ):
+            action, update_id, text = await engine._dedup_fact(
+                "test_proj", "new fact", "john"
+            )
+        assert action == "update"
+        assert update_id == "550e8400-e29b-41d4-a716-446655440000"
+        assert text == "merged text"
 
 
 class TestSearch:
