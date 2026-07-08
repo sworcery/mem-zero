@@ -112,7 +112,7 @@ class TestCmdHealth:
     ) -> None:
         mock_response.json.return_value = {
             "status": "ok",
-            "version": "0.1.37",
+            "version": "0.1.38",
             "services": {"qdrant": True, "llm": True},
         }
         ctx, _ = _mock_client_ctx(mock_response)
@@ -125,7 +125,7 @@ class TestCmdHealth:
         assert result == 0
         captured = capsys.readouterr()
         assert "ok" in captured.out
-        assert "0.1.37" in captured.out
+        assert "0.1.38" in captured.out
 
 
 class TestCmdProjects:

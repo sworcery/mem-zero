@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Path, Query, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from . import __version__
 from .backends import create_backend
 from .config import Config, validate_slug
 from .mcp_server import mcp_router, set_engine
@@ -37,7 +38,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="mem-zero",
     description="Project-isolated MCP memory server",
-    version="0.1.37",
+    version=__version__,
     lifespan=lifespan,
 )
 

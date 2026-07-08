@@ -2,9 +2,12 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+path = "src/mem_zero/__init__.py"
+
 [project]
 name = "mem-zero"
-version = "0.1.37.4"
+dynamic = ["version"]
 description = "Project-isolated MCP memory server"
 requires-python = ">=3.10"
 license = "AGPL-3.0-only"
