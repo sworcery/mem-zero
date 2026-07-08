@@ -225,7 +225,11 @@ class MemoryEngine:
             return [text]
 
     async def _dedup_fact(
-        self, collection: str, fact: str, user_id: str
+        self,
+        collection: str,
+        fact: str,
+        user_id: str,
+        fact_vector: list[float] | None = None,
     ) -> tuple[str, str | None, str | None]:
         if self._backend.is_degraded:
             logger.debug("Skipping LLM dedup (degraded mode), adding directly")
@@ -233,7 +237,9 @@ class MemoryEngine:
             return "add", None, None
 
         self._stats.inc("dedup")
-        results = await self.search_in_collection(collection, fact, top_k=5, user_id=user_id)
+        results = await self.search_in_collection(
+            collection, fact, top_k=5, user_id=user_id, query_vector=fact_vector
+        )
         if not results:
             self._stats.inc("dedup.add")
             return "add", None, None
@@ -275,9 +281,15 @@ class MemoryEngine:
         return "add", None, None
 
     async def search_in_collection(
-        self, collection: str, query: str, top_k: int = 10, user_id: str | None = None
+        self,
+        collection: str,
+        query: str,
+        top_k: int = 10,
+        user_id: str | None = None,
+        query_vector: list[float] | None = None,
     ) -> list[MemoryRecord]:
-        vectors = await self._timed_embed([query])
+        if query_vector is None:
+            query_vector = (await self._timed_embed([query]))[0]
         query_filter = None
         if user_id:
             query_filter = Filter(
@@ -286,7 +298,7 @@ class MemoryEngine:
         results = (
             await self._qdrant.query_points(
                 collection_name=collection,
-                query=vectors[0],
+                query=query_vector,
                 query_filter=query_filter,
                 limit=top_k,
             )
@@ -338,9 +350,14 @@ class MemoryEngine:
         if not all_facts:
             return ids
 
-        for fact in all_facts:
+        # Embed every fact once, up front, in a single batched call. The vector
+        # is reused for both the dedup search and storage below — previously
+        # each fact was embedded twice (once to search, once to store).
+        fact_vectors = await self._timed_embed(all_facts)
+
+        for fact, fact_vector in zip(all_facts, fact_vectors, strict=True):
             action, update_id, merged_text = await self._dedup_fact(
-                collection, fact, user_id
+                collection, fact, user_id, fact_vector=fact_vector
             )
 
             if action == "skip":
@@ -349,7 +366,12 @@ class MemoryEngine:
 
             if action == "update" and update_id:
                 text_to_store = merged_text or fact
-                vectors = await self._timed_embed([text_to_store])
+                # Re-embed only if the LLM actually changed the text on merge;
+                # otherwise the fact's own vector still applies.
+                if text_to_store == fact:
+                    vector = fact_vector
+                else:
+                    vector = (await self._timed_embed([text_to_store]))[0]
                 try:
                     validate_memory_id(update_id)
                     await self._qdrant.upsert(
@@ -357,7 +379,7 @@ class MemoryEngine:
                         points=[
                             PointStruct(
                                 id=update_id,
-                                vector=vectors[0],
+                                vector=vector,
                                 payload={
                                     **clean_meta,
                                     "text": text_to_store,
@@ -375,7 +397,6 @@ class MemoryEngine:
                     action = "add"
 
             if action == "add":
-                vectors = await self._timed_embed([fact])
                 point_id = str(uuid.uuid4())
                 ids.append(point_id)
                 await self._qdrant.upsert(
@@ -383,7 +404,7 @@ class MemoryEngine:
                     points=[
                         PointStruct(
                             id=point_id,
-                            vector=vectors[0],
+                            vector=fact_vector,
                             payload={
                                 **clean_meta,
                                 "text": fact,

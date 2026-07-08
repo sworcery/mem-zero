@@ -161,6 +161,29 @@ class TestAdd:
             assert point.payload["user_id"] == "john"
             assert point.payload["project"] == "project-a"
 
+    @pytest.mark.asyncio
+    async def test_batches_fact_embeddings_into_one_call(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        mock_backend.embed.side_effect = lambda texts: [[0.1] * 768 for _ in texts]
+        with (
+            patch.object(
+                engine, "_extract_facts", new_callable=AsyncMock,
+                return_value=["fact a", "fact b", "fact c"],
+            ),
+            patch.object(
+                engine, "_dedup_fact", new_callable=AsyncMock,
+                return_value=("add", None, None),
+            ),
+        ):
+            ids = await engine.add("project-a", "john", ["some text"])
+        assert len(ids) == 3
+        # One batched embed of all three facts — not one call per fact, and no
+        # separate embed to store what dedup already embedded.
+        assert mock_backend.embed.call_count == 1
+        assert mock_backend.embed.call_args.args[0] == ["fact a", "fact b", "fact c"]
+        assert mock_qdrant.upsert.call_count == 3
+
 
 class TestExtractFacts:
     @pytest.mark.asyncio
