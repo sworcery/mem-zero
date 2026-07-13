@@ -2224,8 +2224,9 @@
       toast(`Stored ${res.stored} memor${res.stored !== 1 ? 'ies' : 'y'}`, 'ok');
       $('proj-add-text').value = '';
       await loadMemories();
-      const proj = S.projects.find(p => p.slug === S.activeSlug);
-      if (proj) { proj.memory_count = S.memories.length; renderSidebar(); }
+      // Refresh the authoritative memory_count from /api/v1/projects; deriving
+      // it from S.memories would cap the count at the 100-row list limit.
+      await loadProjects();
       updateMiniStats();
     } catch (e) {
       toast('Failed to add: ' + e.message, 'err');
