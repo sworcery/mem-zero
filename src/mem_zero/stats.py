@@ -89,22 +89,45 @@ class DiagnosticStats:
             return
         try:
             data = json.loads(self._path.read_text())
-            self._started_at = data.get("started_at", self._started_at)
-            self._counters = data.get("counters", {})
-            self._latency_totals = data.get("latency_totals", {})
-            self._latency_counts = data.get("latency_counts", {})
-            for key, samples in data.get("latency_samples", {}).items():
-                self._latencies[key] = deque(samples, maxlen=_MAX_LATENCY_SAMPLES)
-            self._search_score_sum = data.get("search_score_sum", 0.0)
-            self._search_score_count = data.get("search_score_count", 0)
+            if not isinstance(data, dict):
+                raise ValueError("diagnostics file is not a JSON object")
+
+            # Coerce every field to its expected type: a hand-edited or
+            # version-drifted file with a null/wrong-typed value must not
+            # poison the counters and crash the always-on hot path later.
+            def _as_dict(key: str) -> dict:
+                value = data.get(key)
+                return value if isinstance(value, dict) else {}
+
+            def _as_list(key: str) -> list:
+                value = data.get(key)
+                return value if isinstance(value, list) else []
+
+            started = data.get("started_at")
+            if isinstance(started, (int, float)):
+                self._started_at = started
+            self._counters = _as_dict("counters")
+            self._latency_totals = _as_dict("latency_totals")
+            self._latency_counts = _as_dict("latency_counts")
+            for key, samples in _as_dict("latency_samples").items():
+                if isinstance(samples, list):
+                    self._latencies[key] = deque(samples, maxlen=_MAX_LATENCY_SAMPLES)
+            score_sum = data.get("search_score_sum")
+            self._search_score_sum = (
+                float(score_sum) if isinstance(score_sum, (int, float)) else 0.0
+            )
+            score_count = data.get("search_score_count")
+            self._search_score_count = (
+                int(score_count) if isinstance(score_count, int) else 0
+            )
             self._search_score_buckets = {
                 **self._search_score_buckets,
-                **data.get("search_score_buckets", {}),
+                **_as_dict("search_score_buckets"),
             }
-            for err in data.get("recent_errors", []):
+            for err in _as_list("recent_errors"):
                 self._recent_errors.append(err)
-            self._project_counters = data.get("project_counters", {})
-            self._daily_snapshots = data.get("daily_snapshots", [])
+            self._project_counters = _as_dict("project_counters")
+            self._daily_snapshots = _as_list("daily_snapshots")
             logger.info("Loaded diagnostics from %s", self._path)
         except Exception:
             logger.warning(

@@ -61,10 +61,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             auth = request.headers.get("authorization", "")
             if auth.startswith("Bearer "):
                 token = auth[7:]
-                if secrets.compare_digest(token, self._api_key):
+                if secrets.compare_digest(token.encode(), self._api_key.encode()):
                     return await call_next(request)
             key = request.query_params.get("api_key", "")
-            if key and secrets.compare_digest(key, self._api_key):
+            if key and secrets.compare_digest(key.encode(), self._api_key.encode()):
                 return await call_next(request)
             return Response(
                 status_code=401,

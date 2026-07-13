@@ -4,7 +4,7 @@ import os
 import re
 from dataclasses import dataclass
 
-SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
+SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}\Z")
 
 
 def _ensure_scheme(url: str, default_scheme: str = "http") -> str:
@@ -68,14 +68,17 @@ class Config:
         def _str(key: str, default: str) -> str:
             return os.environ.get(key, default)
 
-        def _int(key: str, default: int) -> int:
+        def _int(key: str, default: int, minimum: int | None = None) -> int:
             raw = os.environ.get(key)
             if raw is None:
                 return default
             try:
-                return int(raw)
+                value = int(raw)
             except ValueError:
                 raise ValueError(f"Invalid integer for {key}: {raw!r}") from None
+            if minimum is not None and value < minimum:
+                raise ValueError(f"{key} must be >= {minimum}, got {value}")
+            return value
 
         def _opt(key: str) -> str | None:
             val = os.environ.get(key, "")
@@ -91,19 +94,25 @@ class Config:
         else:
             backend = "bundled"
 
+        if backend not in ("bundled", "ollama", "openai"):
+            raise ValueError(
+                f"Invalid LLM_BACKEND: {backend!r}. "
+                "Must be one of: bundled, ollama, openai."
+            )
+
         return Config(
             host=_str("HOST", "0.0.0.0"),
-            port=_int("PORT", 8765),
+            port=_int("PORT", 8765, minimum=1),
             qdrant_host=_str("QDRANT_HOST", "127.0.0.1"),
-            qdrant_port=_int("QDRANT_PORT", 6333),
+            qdrant_port=_int("QDRANT_PORT", 6333, minimum=1),
             qdrant_url=_opt("QDRANT_URL"),
             qdrant_api_key=_opt("QDRANT_API_KEY"),
             llm_backend=backend,
             ollama_base_url=_ensure_scheme(_str("OLLAMA_BASE_URL", "http://127.0.0.1:11434")),
             llm_model=_str("LLM_MODEL", "qwen2.5:7b"),
             embedder_model=_str("EMBEDDER_MODEL", "nomic-embed-text"),
-            embedding_dimensions=_int("EMBEDDER_DIMENSIONS", 768),
-            ollama_max_concurrent=_int("OLLAMA_MAX_CONCURRENT", 2),
+            embedding_dimensions=_int("EMBEDDER_DIMENSIONS", 768, minimum=1),
+            ollama_max_concurrent=_int("OLLAMA_MAX_CONCURRENT", 2, minimum=1),
             bundled_model_path=_str(
                 "BUNDLED_MODEL_PATH",
                 "/mem-zero/storage/models/qwen2.5-3b-instruct-q4_k_m.gguf",
@@ -111,7 +120,7 @@ class Config:
             bundled_embed_model=_str(
                 "BUNDLED_EMBED_MODEL", "nomic-ai/nomic-embed-text-v1.5"
             ),
-            bundled_threads=_int("BUNDLED_THREADS", 4),
+            bundled_threads=_int("BUNDLED_THREADS", 4, minimum=1),
             openai_api_key=_opt("OPENAI_API_KEY"),
             openai_base_url=_ensure_scheme(
                 _str("OPENAI_BASE_URL", "https://api.openai.com/v1"), "https"

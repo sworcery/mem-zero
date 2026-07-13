@@ -38,6 +38,20 @@ class TestDiagnosticStats:
     def stats_path(self, tmp_path: Path) -> Path:
         return tmp_path / "stats.json"
 
+    def test_load_coerces_null_and_wrong_types(self, stats_path: Path) -> None:
+        # A hand-edited or version-drifted file with null / wrong-typed fields
+        # must not poison the counters and crash the always-on hot path.
+        stats_path.write_text(
+            '{"counters": null, "project_counters": "oops", '
+            '"daily_snapshots": null, "search_score_sum": null}'
+        )
+        stats = DiagnosticStats(str(stats_path))
+        stats.inc("add_memory")  # must not raise
+        assert stats._counters.get("add_memory") == 1
+        assert stats._project_counters == {}
+        assert stats._daily_snapshots == []
+        assert stats._search_score_sum == 0.0
+
     @pytest.fixture
     def stats(self, stats_path: Path) -> DiagnosticStats:
         return DiagnosticStats(stats_path)

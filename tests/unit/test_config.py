@@ -36,6 +36,10 @@ class TestValidateSlug:
         with pytest.raises(ValueError, match="Invalid project slug"):
             validate_slug("a" * 64)
 
+    def test_rejects_trailing_newline(self) -> None:
+        with pytest.raises(ValueError, match="Invalid project slug"):
+            validate_slug("project\n")
+
 
 class TestConfig:
     def test_defaults(self) -> None:
@@ -62,6 +66,18 @@ class TestConfig:
     def test_from_env_invalid_int(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("PORT", "abc")
         with pytest.raises(ValueError, match="Invalid integer for PORT"):
+            Config.from_env()
+
+    def test_from_env_invalid_backend(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_BACKEND", "ollamaa")
+        with pytest.raises(ValueError, match="Invalid LLM_BACKEND"):
+            Config.from_env()
+
+    def test_from_env_rejects_non_positive_max_concurrent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OLLAMA_MAX_CONCURRENT", "0")
+        with pytest.raises(ValueError, match="OLLAMA_MAX_CONCURRENT must be >= 1"):
             Config.from_env()
 
     def test_optional_fields_default_none(self) -> None:

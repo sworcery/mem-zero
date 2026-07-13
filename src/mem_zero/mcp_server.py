@@ -4,11 +4,13 @@ import contextvars
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Annotated
 
 import anyio
 from fastapi import APIRouter, Request, Response
 from mcp.server.fastmcp import FastMCP
 from mcp.server.streamable_http import StreamableHTTPServerTransport
+from pydantic import Field
 
 from .config import validate_slug
 from .memory_engine import MemoryEngine, validate_memory_id
@@ -50,7 +52,7 @@ def _format_record(record: dict) -> dict:
 
 
 @mcp.tool(description="Store a memory for the current project.")
-async def add_memories(text: str) -> str:
+async def add_memories(text: Annotated[str, Field(max_length=50000)]) -> str:
     project, user = _get_context()
     engine = _get_engine()
     ids = await engine.add(project, user, [text])
@@ -58,7 +60,9 @@ async def add_memories(text: str) -> str:
 
 
 @mcp.tool(description="Semantic search across memories in the current project.")
-async def search_memory(query: str, top_k: int = 10) -> str:
+async def search_memory(
+    query: str, top_k: Annotated[int, Field(ge=1, le=100)] = 10
+) -> str:
     project, _ = _get_context()
     engine = _get_engine()
     results = await engine.search(project, query, top_k=top_k)
@@ -77,9 +81,12 @@ async def list_memories() -> str:
 async def delete_memories(memory_ids: list[str]) -> str:
     project, _ = _get_context()
     engine = _get_engine()
-    deleted = 0
+    # Validate every id before deleting any, so one bad id fails the whole
+    # call cleanly instead of leaving a partially-applied delete.
     for mid in memory_ids:
         validate_memory_id(mid)
+    deleted = 0
+    for mid in memory_ids:
         if await engine.delete(project, mid):
             deleted += 1
     return json.dumps({"deleted": deleted})
