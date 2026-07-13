@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class LLMBackend(ABC):
     @abstractmethod
     async def generate(
-        self, system: str, user: str, schema: dict | None = None
+        self, system: str, user: str, schema: dict[str, object] | None = None
     ) -> str: ...
 
     @abstractmethod
@@ -69,7 +69,7 @@ class BundledBackend(LLMBackend):
         return self._dims
 
     async def generate(
-        self, system: str, user: str, schema: dict | None = None
+        self, system: str, user: str, schema: dict[str, object] | None = None
     ) -> str:
         def _run() -> str:
             result = self._llm.create_chat_completion(
@@ -113,7 +113,7 @@ class OllamaBackend(LLMBackend):
         return self._dims
 
     async def generate(
-        self, system: str, user: str, schema: dict | None = None
+        self, system: str, user: str, schema: dict[str, object] | None = None
     ) -> str:
         async with self._semaphore:
             resp = await self._http.post(
@@ -194,7 +194,7 @@ class OpenAIBackend(LLMBackend):
         return self._dims
 
     async def generate(
-        self, system: str, user: str, schema: dict | None = None
+        self, system: str, user: str, schema: dict[str, object] | None = None
     ) -> str:
         resp = await self._http.post(
             "/chat/completions",
@@ -275,7 +275,7 @@ class FallbackBackend(LLMBackend):
         return self._using_fallback
 
     async def generate(
-        self, system: str, user: str, schema: dict | None = None
+        self, system: str, user: str, schema: dict[str, object] | None = None
     ) -> str:
         if self._primary_in_cooldown():
             fallback = await self._get_fallback()

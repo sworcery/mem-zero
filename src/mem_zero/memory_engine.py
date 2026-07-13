@@ -176,7 +176,7 @@ class MemoryEngine:
         return True
 
     async def _timed_generate(
-        self, system: str, user: str, schema: dict | None = None
+        self, system: str, user: str, schema: dict[str, object] | None = None
     ) -> str:
         t0 = time.monotonic()
         try:
@@ -217,7 +217,7 @@ class MemoryEngine:
             raise
 
     @staticmethod
-    def _facts_from_dict(obj: dict) -> list[str]:
+    def _facts_from_dict(obj: dict[str, object]) -> list[str]:
         # The model returned an object instead of the requested array. Recover
         # fact strings from whichever shape it used: a {"facts": [...]} list, a
         # {category: [...]} list value, a {label: "fact text"} string value, or
