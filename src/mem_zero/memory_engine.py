@@ -83,6 +83,22 @@ NEW FACT:
 {new_fact}
 """
 
+# Schemas passed to the LLM backend to grammar-constrain output to the exact
+# expected shape (Ollama supports this) instead of relying on the prompt alone.
+EXTRACT_SCHEMA = {"type": "array", "items": {"type": "string"}}
+
+CONSOLIDATE_SCHEMA = {"type": "array", "items": {"type": "string"}}
+
+DEDUP_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "action": {"type": "string", "enum": ["add", "update", "skip"]},
+        "id": {"type": "string"},
+        "text": {"type": "string"},
+    },
+    "required": ["action"],
+}
+
 
 class EmbeddingError(Exception):
     pass
@@ -159,10 +175,12 @@ class MemoryEngine:
         await self._qdrant.get_collections()
         return True
 
-    async def _timed_generate(self, system: str, user: str) -> str:
+    async def _timed_generate(
+        self, system: str, user: str, schema: dict | None = None
+    ) -> str:
         t0 = time.monotonic()
         try:
-            result = await self._backend.generate(system, user)
+            result = await self._backend.generate(system, user, schema)
             self._stats.record_latency(
                 "llm_generate", (time.monotonic() - t0) * 1000
             )
@@ -223,7 +241,7 @@ class MemoryEngine:
     async def _extract_facts(self, text: str) -> list[str]:
         self._stats.inc("extract_facts")
         try:
-            raw = await self._timed_generate(EXTRACT_PROMPT, text)
+            raw = await self._timed_generate(EXTRACT_PROMPT, text, schema=EXTRACT_SCHEMA)
         except Exception as exc:
             self._stats.record_error("extract_facts", str(exc))
             raise LLMError(f"Fact extraction failed: {exc}") from exc
@@ -273,7 +291,7 @@ class MemoryEngine:
 
         prompt = DEDUP_PROMPT.format(existing=existing_lines, new_fact=fact)
         try:
-            raw = await self._timed_generate(prompt, "")
+            raw = await self._timed_generate(prompt, "", schema=DEDUP_SCHEMA)
         except Exception as exc:
             self._stats.record_error("dedup", str(exc))
             self._stats.inc("dedup.add")
@@ -747,7 +765,7 @@ class MemoryEngine:
             prompt = CONSOLIDATE_PROMPT.format(fragments=fragments)
 
             try:
-                raw = await self._timed_generate(prompt, "")
+                raw = await self._timed_generate(prompt, "", schema=CONSOLIDATE_SCHEMA)
                 consolidated = json.loads(raw)
                 if isinstance(consolidated, str):
                     consolidated = [consolidated]

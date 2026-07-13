@@ -156,6 +156,8 @@ async def health() -> dict[str, object]:
 
 @app.get("/debug/config")
 async def debug_config() -> dict[str, object]:
+    if not config.diagnostics_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
     info: dict[str, object] = {"llm_backend": config.llm_backend}
     if config.llm_backend == "ollama":
         info["ollama_base_url"] = config.ollama_base_url

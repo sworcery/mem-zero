@@ -78,7 +78,7 @@ class TestFallbackBackend:
     ) -> None:
         result = await backend.generate("sys", "user")
         assert result == '["fact"]'
-        primary.generate.assert_called_once_with("sys", "user")
+        primary.generate.assert_called_once_with("sys", "user", None)
 
     @pytest.mark.asyncio
     async def test_falls_back_on_primary_failure(

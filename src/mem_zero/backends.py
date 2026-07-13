@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 
 class LLMBackend(ABC):
     @abstractmethod
-    async def generate(self, system: str, user: str) -> str: ...
+    async def generate(
+        self, system: str, user: str, schema: dict | None = None
+    ) -> str: ...
 
     @abstractmethod
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
@@ -66,7 +68,9 @@ class BundledBackend(LLMBackend):
     def embedding_dimensions(self) -> int:
         return self._dims
 
-    async def generate(self, system: str, user: str) -> str:
+    async def generate(
+        self, system: str, user: str, schema: dict | None = None
+    ) -> str:
         def _run() -> str:
             result = self._llm.create_chat_completion(
                 messages=[
@@ -108,7 +112,9 @@ class OllamaBackend(LLMBackend):
     def embedding_dimensions(self) -> int:
         return self._dims
 
-    async def generate(self, system: str, user: str) -> str:
+    async def generate(
+        self, system: str, user: str, schema: dict | None = None
+    ) -> str:
         async with self._semaphore:
             resp = await self._http.post(
                 "/api/chat",
@@ -119,7 +125,9 @@ class OllamaBackend(LLMBackend):
                         {"role": "user", "content": user},
                     ],
                     "stream": False,
-                    "format": "json",
+                    # A JSON schema constrains generation to the exact shape,
+                    # eliminating most parse failures; plain "json" otherwise.
+                    "format": schema if schema is not None else "json",
                     # Keep the model resident so back-to-back calls don't pay a
                     # cold reload (the source of the worst-case latency spikes).
                     "keep_alive": "30m",
@@ -185,7 +193,9 @@ class OpenAIBackend(LLMBackend):
     def embedding_dimensions(self) -> int:
         return self._dims
 
-    async def generate(self, system: str, user: str) -> str:
+    async def generate(
+        self, system: str, user: str, schema: dict | None = None
+    ) -> str:
         resp = await self._http.post(
             "/chat/completions",
             json={
@@ -233,6 +243,7 @@ class FallbackBackend(LLMBackend):
         # of each paying the full primary timeout.
         self._cooldown_seconds = cooldown_seconds
         self._cooldown_until = 0.0
+        self._fallback_lock = asyncio.Lock()
         from .stats import NULL_STATS
 
         self._stats = stats or NULL_STATS
@@ -243,10 +254,16 @@ class FallbackBackend(LLMBackend):
     def _trip_breaker(self) -> None:
         self._cooldown_until = time.monotonic() + self._cooldown_seconds
 
-    def _get_fallback(self) -> BundledBackend:
-        if self._fallback is None:
-            logger.warning("Initializing bundled fallback backend")
-            self._fallback = self._fallback_factory()
+    async def _get_fallback(self) -> BundledBackend:
+        if self._fallback is not None:
+            return self._fallback
+        # Load the GGUF off the event loop so one Ollama hiccup doesn't freeze
+        # the whole server; the lock stops two concurrent fallbacks from
+        # loading the multi-GB model twice.
+        async with self._fallback_lock:
+            if self._fallback is None:
+                logger.warning("Initializing bundled fallback backend")
+                self._fallback = await asyncio.to_thread(self._fallback_factory)
         return self._fallback
 
     @property
@@ -257,11 +274,14 @@ class FallbackBackend(LLMBackend):
     def is_degraded(self) -> bool:
         return self._using_fallback
 
-    async def generate(self, system: str, user: str) -> str:
+    async def generate(
+        self, system: str, user: str, schema: dict | None = None
+    ) -> str:
         if self._primary_in_cooldown():
-            return await self._get_fallback().generate(system, user)
+            fallback = await self._get_fallback()
+            return await fallback.generate(system, user, schema)
         try:
-            result = await self._primary.generate(system, user)
+            result = await self._primary.generate(system, user, schema)
             if self._using_fallback:
                 self._using_fallback = False
                 self._stats.inc("backend.recovery")
@@ -272,7 +292,8 @@ class FallbackBackend(LLMBackend):
                 self._stats.inc("backend.fallback")
             self._using_fallback = True
             self._trip_breaker()
-            return await self._get_fallback().generate(system, user)
+            fallback = await self._get_fallback()
+            return await fallback.generate(system, user, schema)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if self._primary_in_cooldown():
@@ -292,7 +313,7 @@ class FallbackBackend(LLMBackend):
             return await self._embed_fallback(texts)
 
     async def _embed_fallback(self, texts: list[str]) -> list[list[float]]:
-        fallback = self._get_fallback()
+        fallback = await self._get_fallback()
         # A fallback that emits a different vector size than the collection was
         # created with would be silently rejected/corrupt; fail loudly instead.
         if fallback.embedding_dimensions != self._primary.embedding_dimensions:

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from mem_zero.config import Config
-from mem_zero.memory_engine import MemoryEngine, validate_memory_id
+from mem_zero.memory_engine import EXTRACT_SCHEMA, MemoryEngine, validate_memory_id
 from mem_zero.models import MemoryRecord
 
 
@@ -237,6 +237,15 @@ class TestExtractFacts:
         )
         facts = await engine._extract_facts("some text")
         assert facts == ["User likes Python", "User uses Qdrant"]
+
+    @pytest.mark.asyncio
+    async def test_passes_extract_schema_to_backend(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        mock_backend.generate.return_value = '["a fact"]'
+        await engine._extract_facts("some text")
+        # Extraction constrains the model to an array-of-strings schema.
+        assert mock_backend.generate.call_args.args[2] == EXTRACT_SCHEMA
 
 
 class TestDedupDegraded:
