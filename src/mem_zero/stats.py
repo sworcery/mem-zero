@@ -249,6 +249,9 @@ class DiagnosticStats:
             + self._counters.get("search", 0)
             + self._counters.get("delete", 0)
             + self._counters.get("delete_all", 0)
+            + self._counters.get("reembed", 0)
+            + self._counters.get("cleanup", 0)
+            + self._counters.get("consolidate", 0)
         )
         total_errors = sum(
             v for k, v in self._counters.items() if k.startswith("errors.")
@@ -262,9 +265,11 @@ class DiagnosticStats:
         dedup_effective = dedup_skip + dedup_update
 
         extract_total = self._counters.get("extract_facts", 0)
-        extract_failures = self._counters.get(
-            "extract_facts.json_failures", 0
-        ) + self._counters.get("extract_facts.empty", 0)
+        extract_failures = (
+            self._counters.get("extract_facts.json_failures", 0)
+            + self._counters.get("extract_facts.empty", 0)
+            + self._counters.get("extract_facts.llm_failures", 0)
+        )
         facts_produced = self._counters.get("extract_facts.produced", 0)
 
         avg_score = (
@@ -330,6 +335,9 @@ class DiagnosticStats:
                     "empty_results": self._counters.get(
                         "extract_facts.empty", 0
                     ),
+                    "llm_failures": self._counters.get(
+                        "extract_facts.llm_failures", 0
+                    ),
                     "failure_rate": (
                         f"{extract_failures / extract_total * 100:.1f}%"
                         if extract_total
@@ -355,7 +363,7 @@ class DiagnosticStats:
             "reliability": {
                 "total_errors": total_errors,
                 "error_rate": (
-                    f"{total_errors / total_ops * 100:.1f}%"
+                    f"{min(total_errors / total_ops * 100, 100.0):.1f}%"
                     if total_ops
                     else "N/A"
                 ),

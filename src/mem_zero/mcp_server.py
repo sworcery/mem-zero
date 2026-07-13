@@ -105,7 +105,9 @@ mcp_router = APIRouter()
 
 @mcp_router.api_route(
     "/{client_name}/http/{user_id}",
-    methods=["POST", "GET", "DELETE"],
+    # POST only: this is a stateless JSON server, so the optional GET SSE
+    # stream would just hang and buffer forever. GET/DELETE now 405 cleanly.
+    methods=["POST"],
 )
 async def handle_mcp(request: Request, client_name: str, user_id: str) -> Response:
     try:

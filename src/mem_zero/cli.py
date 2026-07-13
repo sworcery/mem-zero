@@ -203,9 +203,10 @@ def cmd_health(args: argparse.Namespace) -> int:
         resp = client.get("/health")
         data = resp.json()
 
+    exit_code = 0 if resp.status_code == 200 else 1
     if args.json:
         _print_json(data)
-        return 0
+        return exit_code
 
     status = data.get("status", "unknown")
     version = data.get("version", "?")
@@ -214,7 +215,7 @@ def cmd_health(args: argparse.Namespace) -> int:
     for svc, healthy in services.items():
         indicator = "ok" if healthy else "DEGRADED"
         print(f"  {svc}: {indicator}")
-    return 0 if resp.status_code == 200 else 1
+    return exit_code
 
 
 def cmd_stats(args: argparse.Namespace) -> int:
@@ -350,4 +351,16 @@ def main() -> int:
         return 1
     except httpx.ConnectError:
         print(f"Error: cannot connect to {args.url}", file=sys.stderr)
+        return 1
+    except httpx.TimeoutException as exc:
+        print(f"Error: request timed out ({exc})", file=sys.stderr)
+        return 1
+    except httpx.RequestError as exc:
+        print(f"Error: request failed - {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"Error: invalid response from server ({exc})", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         return 1

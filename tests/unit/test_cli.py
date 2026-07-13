@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
-from mem_zero.cli import build_parser, cmd_export, cmd_health, cmd_projects
+from mem_zero.cli import build_parser, cmd_export, cmd_health, cmd_projects, main
 
 
 @pytest.fixture
@@ -27,6 +28,40 @@ def _mock_client_ctx(mock_response: MagicMock):
     mock.return_value.__enter__ = MagicMock(return_value=http)
     mock.return_value.__exit__ = MagicMock(return_value=False)
     return ctx, mock
+
+
+class TestMainErrorHandling:
+    def _run(self, argv: list[str], http: MagicMock) -> int:
+        ctx = patch("mem_zero.cli._client")
+        mock = ctx.start()
+        mock.return_value.__enter__ = MagicMock(return_value=http)
+        mock.return_value.__exit__ = MagicMock(return_value=False)
+        try:
+            with patch("sys.argv", argv):
+                return main()
+        finally:
+            ctx.stop()
+
+    def test_timeout_returns_exit_1(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        http = MagicMock()
+        http.get.side_effect = httpx.ReadTimeout("slow")
+        rc = self._run(["mem-zero", "health"], http)
+        assert rc == 1
+        assert "timed out" in capsys.readouterr().err
+
+    def test_invalid_json_returns_exit_1(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.side_effect = ValueError("not json")
+        http = MagicMock()
+        http.get.return_value = resp
+        rc = self._run(["mem-zero", "health"], http)
+        assert rc == 1
+        assert "invalid response" in capsys.readouterr().err
 
 
 class TestBuildParser:

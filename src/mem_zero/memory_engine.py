@@ -243,6 +243,7 @@ class MemoryEngine:
         try:
             raw = await self._timed_generate(EXTRACT_PROMPT, text, schema=EXTRACT_SCHEMA)
         except Exception as exc:
+            self._stats.inc("extract_facts.llm_failures")
             self._stats.record_error("extract_facts", str(exc))
             raise LLMError(f"Fact extraction failed: {exc}") from exc
         try:
