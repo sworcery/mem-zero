@@ -198,6 +198,28 @@ class MemoryEngine:
             )
             raise
 
+    @staticmethod
+    def _facts_from_dict(obj: dict) -> list[str]:
+        # The model returned an object instead of the requested array. Recover
+        # fact strings from whichever shape it used: a {"facts": [...]} list, a
+        # {category: [...]} list value, a {label: "fact text"} string value, or
+        # a {"fact text": true} shape where the key itself is the fact.
+        facts = obj.get("facts")
+        if isinstance(facts, list):
+            return facts
+        collected: list[str] = []
+        for key, value in obj.items():
+            if isinstance(value, list):
+                collected.extend(str(x) for x in value if x)
+            elif isinstance(value, str):
+                if value.strip():
+                    collected.append(value)
+            elif not isinstance(value, dict) and isinstance(key, str) and key.strip():
+                # scalar value (bool/number/null) carries no text — the key is
+                # the fact itself, e.g. {"User likes Python": true}
+                collected.append(key)
+        return collected
+
     async def _extract_facts(self, text: str) -> list[str]:
         self._stats.inc("extract_facts")
         try:
@@ -208,7 +230,7 @@ class MemoryEngine:
         try:
             parsed = json.loads(raw)
             if isinstance(parsed, dict):
-                parsed = parsed["facts"] if "facts" in parsed else list(parsed.keys())
+                parsed = self._facts_from_dict(parsed)
             if not isinstance(parsed, list):
                 self._stats.inc("extract_facts.produced", 1)
                 return [str(parsed)]
@@ -374,6 +396,18 @@ class MemoryEngine:
                     vector = (await self._timed_embed([text_to_store]))[0]
                 try:
                     validate_memory_id(update_id)
+                    # Preserve the original creation time — an update merges into
+                    # an existing memory, it does not create a new one.
+                    existing = await self._qdrant.retrieve(
+                        collection_name=collection,
+                        ids=[update_id],
+                        with_payload=True,
+                    )
+                    created_at = (
+                        (existing[0].payload or {}).get("created_at", now)
+                        if existing
+                        else now
+                    )
                     await self._qdrant.upsert(
                         collection_name=collection,
                         points=[
@@ -385,7 +419,7 @@ class MemoryEngine:
                                     "text": text_to_store,
                                     "user_id": user_id,
                                     "project": project_slug,
-                                    "created_at": now,
+                                    "created_at": created_at,
                                     "updated_at": now,
                                 },
                             )
@@ -522,6 +556,19 @@ class MemoryEngine:
                 break
             offset = next_offset
 
+        # Re-embed everything up front, before any destructive operation, so a
+        # mid-way embedding failure (e.g. the LLM backend going down) can never
+        # leave the collection deleted-but-not-repopulated.
+        new_points: list[PointStruct] = []
+        for point_id, payload in all_payloads:
+            text = payload.get("text", "")
+            if not text:
+                continue
+            vectors = await self._timed_embed([text])
+            new_points.append(
+                PointStruct(id=point_id, vector=vectors[0], payload=payload)
+            )
+
         if dimension_change:
             logger.info(
                 "Dimension change %d→%d for %s, recreating collection",
@@ -531,20 +578,13 @@ class MemoryEngine:
             self._ensured_collections.discard(collection)
             collection = await self._ensure_collection(project_slug)
 
-        updated = 0
-        for point_id, payload in all_payloads:
-            text = payload.get("text", "")
-            if not text:
-                continue
-            vectors = await self._timed_embed([text])
+        for i in range(0, len(new_points), 100):
             await self._qdrant.upsert(
-                collection_name=collection,
-                points=[PointStruct(id=point_id, vector=vectors[0], payload=payload)],
+                collection_name=collection, points=new_points[i : i + 100]
             )
-            updated += 1
 
-        logger.info("Re-embedded %d points in %s", updated, collection)
-        return updated
+        logger.info("Re-embedded %d points in %s", len(new_points), collection)
+        return len(new_points)
 
     @staticmethod
     def _clean_dict_text(text: str) -> list[str] | None:

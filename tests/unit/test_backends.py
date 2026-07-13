@@ -60,6 +60,7 @@ class TestFallbackBackend:
     @pytest.fixture
     def fallback_factory(self) -> MagicMock:
         fb = AsyncMock()
+        fb.embedding_dimensions = 768
         fb.generate.return_value = '["fallback fact"]'
         fb.embed.return_value = [[0.2] * 768]
         factory = MagicMock(return_value=fb)
@@ -67,7 +68,9 @@ class TestFallbackBackend:
 
     @pytest.fixture
     def backend(self, primary: AsyncMock, fallback_factory: MagicMock) -> FallbackBackend:
-        return FallbackBackend(primary, fallback_factory)
+        # cooldown_seconds=0 keeps the pre-existing tests exercising the
+        # retry-primary-on-every-call path; the breaker has its own test below.
+        return FallbackBackend(primary, fallback_factory, cooldown_seconds=0.0)
 
     @pytest.mark.asyncio
     async def test_uses_primary_when_healthy(
@@ -131,6 +134,38 @@ class TestFallbackBackend:
         self, backend: FallbackBackend, primary: AsyncMock
     ) -> None:
         assert backend.embedding_dimensions == 768
+
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_skips_primary_during_cooldown(
+        self, primary: AsyncMock, fallback_factory: MagicMock
+    ) -> None:
+        backend = FallbackBackend(primary, fallback_factory, cooldown_seconds=60.0)
+        primary.generate.side_effect = Exception("down")
+        await backend.generate("sys", "user")  # trips the breaker
+        assert primary.generate.call_count == 1
+
+        # Primary "recovers", but we are inside the cooldown window, so the next
+        # call must fail over instantly WITHOUT touching the primary again.
+        primary.generate.side_effect = None
+        primary.generate.return_value = '["recovered"]'
+        result = await backend.generate("sys", "user")
+        assert result == '["fallback fact"]'
+        assert primary.generate.call_count == 1  # not retried during cooldown
+        assert backend.is_degraded is True
+
+    @pytest.mark.asyncio
+    async def test_embed_fallback_rejects_dimension_mismatch(
+        self, primary: AsyncMock
+    ) -> None:
+        fb = AsyncMock()
+        fb.embedding_dimensions = 1024  # != primary's 768
+        fb.embed.return_value = [[0.3] * 1024]
+        backend = FallbackBackend(
+            primary, MagicMock(return_value=fb), cooldown_seconds=0.0
+        )
+        primary.embed.side_effect = Exception("embed down")
+        with pytest.raises(RuntimeError, match="dim"):
+            await backend.embed(["test"])
 
 
 class TestCreateBackend:

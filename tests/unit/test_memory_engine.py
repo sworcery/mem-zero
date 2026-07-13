@@ -220,6 +220,24 @@ class TestExtractFacts:
         facts = await engine._extract_facts("some text")
         assert facts == ["fact one", "fact two"]
 
+    @pytest.mark.asyncio
+    async def test_dict_list_value_used(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        mock_backend.generate.return_value = '{"greetings": ["hello", "world"]}'
+        facts = await engine._extract_facts("some text")
+        assert facts == ["hello", "world"]
+
+    @pytest.mark.asyncio
+    async def test_dict_string_values_used_not_keys(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        mock_backend.generate.return_value = (
+            '{"fact1": "User likes Python", "fact2": "User uses Qdrant"}'
+        )
+        facts = await engine._extract_facts("some text")
+        assert facts == ["User likes Python", "User uses Qdrant"]
+
 
 class TestDedupDegraded:
     @pytest.mark.asyncio
@@ -339,3 +357,48 @@ class TestDeleteAll:
         count = await engine.delete_all("project-a")
         assert count == 5
         mock_qdrant.delete_collection.assert_called_once_with("test_project-a")
+
+
+class TestReembedAtomicity:
+    @pytest.mark.asyncio
+    async def test_embed_failure_does_not_delete_collection(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        # Dimension change so a successful reembed WOULD recreate the collection.
+        info = MagicMock()
+        info.config.params.vectors.size = 512  # != backend's 768
+        mock_qdrant.get_collection.return_value = info
+        pt1 = MagicMock(id="id1", payload={"text": "a"})
+        pt2 = MagicMock(id="id2", payload={"text": "b"})
+        mock_qdrant.scroll.return_value = ([pt1, pt2], None)
+        # Embedding fails before any re-embed completes.
+        mock_backend.embed.side_effect = Exception("ollama down")
+        with pytest.raises(Exception, match="ollama down"):
+            await engine.reembed_all("proj")
+        # The collection must NOT have been deleted — data is preserved.
+        mock_qdrant.delete_collection.assert_not_called()
+
+
+class TestUpdatePreservesCreatedAt:
+    @pytest.mark.asyncio
+    async def test_update_keeps_original_created_at(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        uid = "550e8400-e29b-41d4-a716-446655440000"
+        existing_pt = MagicMock()
+        existing_pt.payload = {"created_at": 12345.0}
+        mock_qdrant.retrieve.return_value = [existing_pt]
+        with (
+            patch.object(
+                engine, "_extract_facts", new_callable=AsyncMock,
+                return_value=["new fact"],
+            ),
+            patch.object(
+                engine, "_dedup_fact", new_callable=AsyncMock,
+                return_value=("update", uid, "merged text"),
+            ),
+        ):
+            await engine.add("proj", "john", ["some text"])
+        payload = mock_qdrant.upsert.call_args.kwargs["points"][0].payload
+        assert payload["created_at"] == 12345.0
+        assert payload["updated_at"] != 12345.0

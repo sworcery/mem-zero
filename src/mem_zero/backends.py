@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -221,14 +222,26 @@ class FallbackBackend(LLMBackend):
         primary: LLMBackend,
         fallback_factory: Callable[[], BundledBackend],
         stats: DiagnosticStats | _NullStats | None = None,
+        cooldown_seconds: float = 30.0,
     ) -> None:
         self._primary = primary
         self._fallback_factory = fallback_factory
         self._fallback: BundledBackend | None = None
         self._using_fallback = False
+        # Circuit breaker: after the primary fails, skip it entirely for this
+        # long so every request during an outage fails over instantly instead
+        # of each paying the full primary timeout.
+        self._cooldown_seconds = cooldown_seconds
+        self._cooldown_until = 0.0
         from .stats import NULL_STATS
 
         self._stats = stats or NULL_STATS
+
+    def _primary_in_cooldown(self) -> bool:
+        return time.monotonic() < self._cooldown_until
+
+    def _trip_breaker(self) -> None:
+        self._cooldown_until = time.monotonic() + self._cooldown_seconds
 
     def _get_fallback(self) -> BundledBackend:
         if self._fallback is None:
@@ -245,6 +258,8 @@ class FallbackBackend(LLMBackend):
         return self._using_fallback
 
     async def generate(self, system: str, user: str) -> str:
+        if self._primary_in_cooldown():
+            return await self._get_fallback().generate(system, user)
         try:
             result = await self._primary.generate(system, user)
             if self._using_fallback:
@@ -256,9 +271,12 @@ class FallbackBackend(LLMBackend):
             if not self._using_fallback:
                 self._stats.inc("backend.fallback")
             self._using_fallback = True
+            self._trip_breaker()
             return await self._get_fallback().generate(system, user)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
+        if self._primary_in_cooldown():
+            return await self._embed_fallback(texts)
         try:
             result = await self._primary.embed(texts)
             if self._using_fallback:
@@ -270,7 +288,21 @@ class FallbackBackend(LLMBackend):
             if not self._using_fallback:
                 self._stats.inc("backend.fallback")
             self._using_fallback = True
-            return await self._get_fallback().embed(texts)
+            self._trip_breaker()
+            return await self._embed_fallback(texts)
+
+    async def _embed_fallback(self, texts: list[str]) -> list[list[float]]:
+        fallback = self._get_fallback()
+        # A fallback that emits a different vector size than the collection was
+        # created with would be silently rejected/corrupt; fail loudly instead.
+        if fallback.embedding_dimensions != self._primary.embedding_dimensions:
+            raise RuntimeError(
+                f"Fallback embedder produces {fallback.embedding_dimensions}-dim "
+                f"vectors but the collection expects "
+                f"{self._primary.embedding_dimensions}. Align EMBEDDER_DIMENSIONS "
+                f"with the bundled model, or use matching embedding models."
+            )
+        return await fallback.embed(texts)
 
     async def health_ping(self) -> bool:
         return await self._primary.health_ping()
