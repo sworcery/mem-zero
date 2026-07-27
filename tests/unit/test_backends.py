@@ -199,15 +199,39 @@ class TestOllamaBackend:
         backend._dims = 768
         assert backend.embedding_dimensions == 768
 
-    @pytest.mark.asyncio
-    async def test_health_ping_success(self) -> None:
+    @staticmethod
+    def _backend_with_tags(models: list[str]) -> OllamaBackend:
         backend = OllamaBackend.__new__(OllamaBackend)
+        backend._llm_model = "qwen2.5:14b"
+        backend._embed_model = "mxbai-embed-large"
         mock_http = AsyncMock()
         mock_resp = MagicMock()
         mock_resp.status_code = 200
+        mock_resp.json = MagicMock(
+            return_value={"models": [{"name": m} for m in models]}
+        )
         mock_http.get.return_value = mock_resp
         backend._http = mock_http
+        return backend
+
+    @pytest.mark.asyncio
+    async def test_health_ping_success(self) -> None:
+        backend = self._backend_with_tags(
+            ["qwen2.5:14b", "mxbai-embed-large:latest"]
+        )
         assert await backend.health_ping() is True
+
+    @pytest.mark.asyncio
+    async def test_health_ping_false_when_embed_model_not_pulled(self) -> None:
+        # Ollama answers 200 but the configured embedder was never pulled —
+        # every embed call fails, so health must report degraded.
+        backend = self._backend_with_tags(["qwen2.5:14b", "nomic-embed-text:latest"])
+        assert await backend.health_ping() is False
+
+    @pytest.mark.asyncio
+    async def test_health_ping_false_when_chat_model_not_pulled(self) -> None:
+        backend = self._backend_with_tags(["mxbai-embed-large:latest"])
+        assert await backend.health_ping() is False
 
     @pytest.mark.asyncio
     async def test_health_ping_failure(self) -> None:

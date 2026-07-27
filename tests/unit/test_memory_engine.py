@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from mem_zero.config import Config
 from mem_zero.memory_engine import EXTRACT_SCHEMA, MemoryEngine, validate_memory_id
 from mem_zero.models import MemoryRecord
+from mem_zero.stats import DiagnosticStats
 
 
 @pytest.fixture
@@ -366,6 +368,27 @@ class TestDeleteAll:
         count = await engine.delete_all("project-a")
         assert count == 5
         mock_qdrant.delete_collection.assert_called_once_with("test_project-a")
+
+
+class TestEmbedFailureIsRecorded:
+    @pytest.mark.asyncio
+    async def test_embed_error_recorded_in_stats(
+        self,
+        config: Config,
+        mock_backend: AsyncMock,
+        mock_qdrant: AsyncMock,
+        tmp_path: Path,
+    ) -> None:
+        # An embedding outage must surface in error_rate/recent_errors; it was
+        # previously invisible, so a total outage still reported 0.0% errors.
+        stats = DiagnosticStats(str(tmp_path / "stats.json"))
+        engine = MemoryEngine(config, mock_backend, stats=stats)
+        engine._qdrant = mock_qdrant
+        mock_backend.embed.side_effect = Exception("ollama embed down")
+        with pytest.raises(Exception, match="ollama embed down"):
+            await engine._timed_embed(["some text"])
+        assert stats._counters.get("errors.embed") == 1
+        assert any(e.get("operation") == "embed" for e in stats._recent_errors)
 
 
 class TestReembedAtomicity:

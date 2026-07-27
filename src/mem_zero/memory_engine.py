@@ -208,12 +208,16 @@ class MemoryEngine:
                         f"Embedding model returned zero vector for text: {texts[i][:80]!r}"
                     )
             return result
-        except EmbeddingError:
+        except EmbeddingError as exc:
+            # Latency was already recorded above; just surface the failure so an
+            # embedding outage shows up in error_rate and recent_errors.
+            self._stats.record_error("embed", str(exc))
             raise
-        except Exception:
+        except Exception as exc:
             self._stats.record_latency(
                 "embed", (time.monotonic() - t0) * 1000
             )
+            self._stats.record_error("embed", str(exc))
             raise
 
     @staticmethod

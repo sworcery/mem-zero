@@ -159,12 +159,29 @@ class OllamaBackend(LLMBackend):
             resp.raise_for_status()
             return resp.json()["embeddings"]
 
+    @staticmethod
+    def _model_available(configured: str, available: list[str]) -> bool:
+        # Ollama reports tags like "mxbai-embed-large:latest"; a configured name
+        # with no explicit tag should match the implicit ":latest".
+        if configured in available:
+            return True
+        return ":" not in configured and f"{configured}:latest" in available
+
     async def health_ping(self) -> bool:
         try:
             resp = await self._http.get("/api/tags", timeout=5.0)
-            return resp.status_code == 200
+            if resp.status_code != 200:
+                return False
+            available = [m.get("name", "") for m in resp.json().get("models", [])]
         except Exception:
             return False
+        # A reachable Ollama isn't enough: if a configured model was never
+        # pulled, every request fails while /api/tags still answers 200.
+        for model in (self._llm_model, self._embed_model):
+            if not self._model_available(model, available):
+                logger.warning("Ollama is reachable but model %r is not pulled", model)
+                return False
+        return True
 
     async def close(self) -> None:
         await self._http.aclose()
