@@ -95,10 +95,10 @@ class TestConfig:
             config.collection_name("invalid.slug!")
 
     def test_from_env_prepends_http_to_ollama_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("OLLAMA_BASE_URL", "192.168.1.10:11434")
+        monkeypatch.setenv("OLLAMA_BASE_URL", "192.0.2.10:11434")
         monkeypatch.setenv("LLM_BACKEND", "ollama")
         config = Config.from_env()
-        assert config.ollama_base_url == "http://192.168.1.10:11434"
+        assert config.ollama_base_url == "http://192.0.2.10:11434"
 
     def test_from_env_preserves_explicit_scheme(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.example.com")
@@ -109,7 +109,7 @@ class TestConfig:
 
 class TestEnsureScheme:
     def test_adds_http_when_missing(self) -> None:
-        assert _ensure_scheme("192.168.1.10:11434") == "http://192.168.1.10:11434"
+        assert _ensure_scheme("192.0.2.10:11434") == "http://192.0.2.10:11434"
 
     def test_preserves_existing_http(self) -> None:
         assert _ensure_scheme("http://localhost:11434") == "http://localhost:11434"

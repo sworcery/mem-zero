@@ -27,7 +27,17 @@ docker run -d \
 
 That's it. The bundled LLM handles fact extraction and embeddings out of the box. First startup downloads models (~2 GB) and takes a few minutes — subsequent starts are fast.
 
+## How it works
+
+1. Text comes in via MCP or REST API
+2. LLM extracts atomic facts (e.g. "User prefers Python over R")
+3. Each fact is checked against existing memories for duplicates
+4. Novel facts are embedded and stored; duplicates are merged or skipped
+
 ## Connecting your tools
+
+<details>
+<summary><b>Claude Code, the CLI, other MCP clients, and the REST API</b></summary>
 
 ### Claude Code (MCP)
 
@@ -102,14 +112,12 @@ curl -X POST http://your-host:8765/api/v1/projects/my-project/search \
 
 The project slug must start with a letter or number, followed by lowercase alphanumeric characters, hyphens, or underscores (1-63 chars). Each unique slug creates an isolated collection.
 
-## How it works
-
-1. Text comes in via MCP or REST API
-2. LLM extracts atomic facts (e.g. "User prefers Python over R")
-3. Each fact is checked against existing memories for duplicates
-4. Novel facts are embedded and stored; duplicates are merged or skipped
+</details>
 
 ## LLM backends
+
+<details>
+<summary><b>Ollama (recommended), bundled (default), and OpenAI-compatible</b></summary>
 
 mem-zero supports three LLM backends for fact extraction and deduplication.
 
@@ -157,7 +165,12 @@ docker run -d \
 
 Works with any OpenAI-compatible API (OpenAI, Groq, Together, etc.) by setting `OPENAI_BASE_URL`. This backend has not been extensively tested — if you encounter issues, please report them.
 
+</details>
+
 ## Web dashboard
+
+<details>
+<summary><b>Management UI at the root URL — health, projects, memories, charts</b></summary>
 
 A management UI is served at the root URL (`http://your-host:8765/`). From the dashboard you can:
 
@@ -172,7 +185,12 @@ Enable `DIAGNOSTICS_ENABLED=true` to see performance metrics, accuracy stats, sc
 
 Optionally protect it with basic auth via `DASHBOARD_USER` and `DASHBOARD_PASS`.
 
+</details>
+
 ## Authentication
+
+<details>
+<summary><b>API keys for REST/MCP, plus dashboard basic auth</b></summary>
 
 Set `API_KEY` to protect all API and MCP endpoints. When set, requests must include the key as a Bearer token:
 
@@ -201,7 +219,12 @@ If `API_KEY` is not set, all endpoints are open — suitable for trusted network
 
 The dashboard has its own basic auth (`DASHBOARD_USER`/`DASHBOARD_PASS`) since browsers need a login prompt rather than Bearer tokens.
 
+</details>
+
 ## MCP tools
+
+<details>
+<summary><b>The five tools exposed to MCP clients</b></summary>
 
 | Tool | Description |
 |------|-------------|
@@ -211,7 +234,12 @@ The dashboard has its own basic auth (`DASHBOARD_USER`/`DASHBOARD_PASS`) since b
 | `delete_memories(memory_ids)` | Delete specific memories by ID |
 | `delete_all_memories()` | Delete all memories for the project |
 
+</details>
+
 ## Export and import
+
+<details>
+<summary><b>Back up or migrate project memories as JSON</b></summary>
 
 Back up project memories to a JSON file, or migrate between servers:
 
@@ -229,13 +257,18 @@ curl http://your-host:8765/api/v1/projects/my-project/memories?limit=1000 > back
 
 The export format includes project metadata, timestamps, and all memory content. Importing re-processes text through the LLM pipeline (extraction and dedup), so imported memories are properly deduplicated against existing content.
 
+</details>
+
 ## Best practices
+
+<details>
+<summary><b>How to get good memories out of your assistant</b></summary>
 
 mem-zero supplements conversations — it's not a transcript. Store things a future session would need that aren't obvious from reading the code or git history.
 
 **Search first.** At the start of every conversation, search mem-zero for prior context. A well-maintained memory store means you never start from scratch.
 
-**Store decisions, not play-by-play.** "Chose skopeo over docker push because the local registry uses a self-signed cert" is useful. "Updated line 42 in server.py" is not — that's what `git log` is for.
+**Store decisions, not play-by-play.** "Chose PostgreSQL over Redis because we need ACID transactions" is useful. "Updated line 42 in server.py" is not — that's what `git log` is for.
 
 **Store dead ends.** If you spend 30 minutes debugging something that turned out to be a red herring, store that. It prevents future sessions from going down the same path.
 
@@ -245,7 +278,12 @@ mem-zero supplements conversations — it's not a transcript. Store things a fut
 
 For Claude Code, add instructions to your `CLAUDE.md` telling the assistant to use mem-zero proactively. Without explicit instructions, most assistants won't store memories on their own.
 
+</details>
+
 ## REST API
+
+<details>
+<summary><b>Full endpoint reference</b></summary>
 
 ```
 GET    /health                                  — health check
@@ -262,7 +300,12 @@ POST   /api/v1/projects/{slug}/consolidate        — merge similar fragments in
 GET    /api/v1/diagnostics                        — performance and accuracy metrics
 ```
 
+</details>
+
 ## Configuration
+
+<details>
+<summary><b>All environment variables (general, and per-backend)</b></summary>
 
 All settings are via environment variables.
 
@@ -314,7 +357,12 @@ All settings are via environment variables.
 | `QDRANT_URL` | — | Full Qdrant URL (overrides host/port) |
 | `QDRANT_API_KEY` | — | Qdrant API key (if using external) |
 
+</details>
+
 ## Architecture
+
+<details>
+<summary><b>What's inside the single container</b></summary>
 
 The container bundles everything into a single image using s6-overlay for process supervision:
 
@@ -326,6 +374,8 @@ The container bundles everything into a single image using s6-overlay for proces
 External LLMs (Ollama, OpenAI) are supported as alternatives. When using Ollama, the bundled model serves as an automatic fallback if Ollama is unreachable.
 
 Project isolation is enforced at the Qdrant collection level. Each project slug maps to `{prefix}_{slug}`, and all queries are scoped to a single collection.
+
+</details>
 
 ## Unraid
 

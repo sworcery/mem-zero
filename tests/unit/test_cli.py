@@ -107,8 +107,8 @@ class TestBuildParser:
 
     def test_custom_url(self) -> None:
         parser = build_parser()
-        args = parser.parse_args(["--url", "http://192.168.1.10:8765", "health"])
-        assert args.url == "http://192.168.1.10:8765"
+        args = parser.parse_args(["--url", "http://192.0.2.10:8765", "health"])
+        assert args.url == "http://192.0.2.10:8765"
 
     def test_api_key_flag(self) -> None:
         parser = build_parser()
