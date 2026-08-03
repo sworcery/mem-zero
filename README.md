@@ -322,6 +322,8 @@ All settings are via environment variables.
 | `DASHBOARD_USER` | — | Dashboard login username (auth disabled if empty) |
 | `DASHBOARD_PASS` | — | Dashboard login password |
 | `DIAGNOSTICS_ENABLED` | `false` | Enable performance and accuracy metrics on the dashboard |
+| `RERANK_ENABLED` | `false` | Rerank search results with a CPU cross-encoder for sharper relevance scores (~0.5s extra per search, ~200 MB RAM) |
+| `RERANK_MODEL` | `Xenova/ms-marco-MiniLM-L-6-v2` | fastembed cross-encoder model used when reranking |
 
 ### Bundled backend
 

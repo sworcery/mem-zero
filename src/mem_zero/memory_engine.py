@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 import uuid
@@ -178,6 +179,8 @@ class MemoryEngine:
 
         self._ensured_collections: set[str] = set()
         self._lock = asyncio.Lock()
+        self._reranker: object | None = None
+        self._reranker_lock = asyncio.Lock()
 
     async def close(self) -> None:
         await self._backend.close()
@@ -561,6 +564,44 @@ class MemoryEngine:
         self._stats.record_latency("add_memory", (time.monotonic() - t0) * 1000)
         return ids
 
+    async def _get_reranker(self) -> object:
+        # Lazy: the ONNX cross-encoder costs ~200MB RAM and a few seconds to
+        # load, so it only exists once the first reranked search needs it.
+        if self._reranker is None:
+            async with self._reranker_lock:
+                if self._reranker is None:
+                    def _load() -> object:
+                        from fastembed.rerank.cross_encoder import TextCrossEncoder
+
+                        return TextCrossEncoder(model_name=self._config.rerank_model)
+
+                    logger.info("Loading reranker %s", self._config.rerank_model)
+                    self._reranker = await asyncio.to_thread(_load)
+        return self._reranker
+
+    async def _rerank(
+        self, query: str, results: list[MemoryRecord], top_k: int
+    ) -> list[MemoryRecord]:
+        t0 = time.monotonic()
+        try:
+            reranker = await self._get_reranker()
+            texts = [r.text for r in results]
+            scores = await asyncio.to_thread(
+                lambda: list(reranker.rerank(query, texts))  # type: ignore[attr-defined]
+            )
+        except Exception as exc:
+            # Rerank is best-effort; cosine ordering is a fine fallback.
+            self._stats.record_error("rerank", str(exc))
+            logger.warning("Rerank failed (%s), using vector order", exc)
+            return results[:top_k]
+        for record, score in zip(results, scores, strict=True):
+            # Sigmoid maps the cross-encoder logit to a calibrated 0-1
+            # relevance — far better separated than raw cosine.
+            record.score = round(1 / (1 + math.exp(-score)), 6)
+        results.sort(key=lambda r: r.score or 0.0, reverse=True)
+        self._stats.record_latency("rerank", (time.monotonic() - t0) * 1000)
+        return results[:top_k]
+
     async def search(
         self,
         project_slug: str,
@@ -572,7 +613,18 @@ class MemoryEngine:
         self._stats.record_activity(project_slug)
         t0 = time.monotonic()
         collection = await self._ensure_collection(project_slug)
-        results = await self.search_in_collection(collection, query, top_k=top_k)
+        if self._config.rerank_enabled:
+            # Over-fetch so the cross-encoder has candidates to reorder.
+            candidates = await self.search_in_collection(
+                collection, query, top_k=min(max(top_k * 3, top_k), 25)
+            )
+            results = (
+                await self._rerank(query, candidates, top_k)
+                if len(candidates) > 1
+                else candidates
+            )
+        else:
+            results = await self.search_in_collection(collection, query, top_k=top_k)
         if not results:
             self._stats.inc("search.zero_results")
         self._stats.record_latency("search", (time.monotonic() - t0) * 1000)

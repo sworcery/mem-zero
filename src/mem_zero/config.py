@@ -53,6 +53,11 @@ class Config:
     openai_model: str = "gpt-4o-mini"
     openai_embed_model: str = "text-embedding-3-small"
 
+    # Optional cross-encoder rerank of search results (fastembed, CPU).
+    # Off by default: ~0.5s latency and ~200MB RAM when enabled.
+    rerank_enabled: bool = False
+    rerank_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
+
     collection_prefix: str = "mem-zero"
 
     api_key: str | None = None
@@ -127,6 +132,9 @@ class Config:
             ),
             openai_model=_str("OPENAI_MODEL", "gpt-4o-mini"),
             openai_embed_model=_str("OPENAI_EMBED_MODEL", "text-embedding-3-small"),
+            rerank_enabled=os.environ.get("RERANK_ENABLED", "false").lower()
+            in ("1", "true", "yes"),
+            rerank_model=_str("RERANK_MODEL", "Xenova/ms-marco-MiniLM-L-6-v2"),
             collection_prefix=_str("COLLECTION_PREFIX", "mem-zero"),
             api_key=_opt("API_KEY"),
             dashboard_user=_opt("DASHBOARD_USER"),

@@ -537,6 +537,83 @@ class TestSearch:
         call_args = mock_qdrant.query_points.call_args
         assert call_args.kwargs["collection_name"] == "test_project-a"
 
+    @pytest.mark.asyncio
+    async def test_rerank_disabled_by_default(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        mock_qdrant.query_points.return_value = MagicMock(points=[])
+        await engine.search("project-a", "q", top_k=10)
+        # No over-fetch when reranking is off.
+        assert mock_qdrant.query_points.call_args.kwargs["limit"] == 10
+
+
+class TestRerank:
+    @pytest.fixture
+    def rerank_engine(
+        self, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> MemoryEngine:
+        cfg = Config(collection_prefix="test", rerank_enabled=True)
+        eng = MemoryEngine(cfg, mock_backend)
+        eng._qdrant = mock_qdrant
+        return eng
+
+    @staticmethod
+    def _record(id_: str, text: str, score: float) -> MemoryRecord:
+        return MemoryRecord(
+            id=id_, text=text, user_id="john",
+            created_at=0.0, updated_at=0.0, score=score,
+        )
+
+    @pytest.mark.asyncio
+    async def test_reorders_by_cross_encoder_and_slices(
+        self, rerank_engine: MemoryEngine
+    ) -> None:
+        # Vector order: a, b, c. Cross-encoder strongly prefers c.
+        candidates = [
+            self._record("a", "memory a", 0.60),
+            self._record("b", "memory b", 0.55),
+            self._record("c", "memory c", 0.50),
+        ]
+        fake = MagicMock()
+        fake.rerank.return_value = [-5.0, -8.0, 6.0]
+        with (
+            patch.object(
+                rerank_engine, "search_in_collection", new_callable=AsyncMock,
+                return_value=candidates,
+            ) as sic,
+            patch.object(
+                rerank_engine, "_get_reranker", new_callable=AsyncMock,
+                return_value=fake,
+            ),
+        ):
+            results = await rerank_engine.search("proj", "query", top_k=2)
+        # Over-fetched candidates for the reranker...
+        assert sic.call_args.kwargs["top_k"] == 6
+        # ...c wins with a calibrated sigmoid score, sliced to top_k.
+        assert [r.id for r in results] == ["c", "a"]
+        assert results[0].score is not None and results[0].score > 0.99
+
+    @pytest.mark.asyncio
+    async def test_rerank_failure_falls_back_to_vector_order(
+        self, rerank_engine: MemoryEngine
+    ) -> None:
+        candidates = [
+            self._record("a", "memory a", 0.60),
+            self._record("b", "memory b", 0.55),
+        ]
+        with (
+            patch.object(
+                rerank_engine, "search_in_collection", new_callable=AsyncMock,
+                return_value=candidates,
+            ),
+            patch.object(
+                rerank_engine, "_get_reranker", new_callable=AsyncMock,
+                side_effect=RuntimeError("model download failed"),
+            ),
+        ):
+            results = await rerank_engine.search("proj", "query", top_k=2)
+        assert [r.id for r in results] == ["a", "b"]
+
 
 class TestDeleteAll:
     @pytest.mark.asyncio
