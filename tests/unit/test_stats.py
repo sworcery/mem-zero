@@ -38,6 +38,21 @@ class TestDiagnosticStats:
     def stats_path(self, tmp_path: Path) -> Path:
         return tmp_path / "stats.json"
 
+    def test_flush_prunes_stale_projects(self, stats_path: Path) -> None:
+        import time as _time
+
+        stats = DiagnosticStats(str(stats_path))
+        stats.inc_project("ancient", "add_memory")
+        stats._project_counters["ancient"]["last_activity_ts"] = (
+            _time.time() - 200 * 86400
+        )
+        stats.record_activity("fresh")
+        stats.inc_project("no-timestamp", "add_memory")  # never pruned
+        stats.flush()
+        assert "ancient" not in stats._project_counters
+        assert "fresh" in stats._project_counters
+        assert "no-timestamp" in stats._project_counters
+
     def test_load_coerces_null_and_wrong_types(self, stats_path: Path) -> None:
         # A hand-edited or version-drifted file with null / wrong-typed fields
         # must not poison the counters and crash the always-on hot path.

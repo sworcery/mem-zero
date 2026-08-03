@@ -134,7 +134,21 @@ class DiagnosticStats:
                 "Failed to load diagnostics from %s, starting fresh", self._path
             )
 
+    def _prune_stale_projects(self) -> None:
+        # Slugs accumulate forever otherwise (deleted/renamed projects, probes).
+        # Anything inactive for 180 days stops being interesting diagnostics.
+        cutoff = time.time() - 180 * 86400
+        stale = [
+            slug
+            for slug, pc in self._project_counters.items()
+            if isinstance(pc.get("last_activity_ts"), (int, float))
+            and pc["last_activity_ts"] < cutoff
+        ]
+        for slug in stale:
+            del self._project_counters[slug]
+
     def flush(self) -> None:
+        self._prune_stale_projects()
         data = {
             "started_at": self._started_at,
             "last_flush": time.time(),

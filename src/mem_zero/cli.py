@@ -19,7 +19,11 @@ def _client(args: argparse.Namespace) -> httpx.Client:
 def _format_time(ts: float | None) -> str:
     if not ts or ts == 0:
         return "-"
-    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    try:
+        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    except (ValueError, OverflowError, OSError):
+        # Server-supplied timestamp out of range — don't crash a listing over it.
+        return "-"
 
 
 def _print_json(data: Any) -> None:
@@ -360,6 +364,10 @@ def main() -> int:
         return 1
     except ValueError as exc:
         print(f"Error: invalid response from server ({exc})", file=sys.stderr)
+        return 1
+    except KeyError as exc:
+        # A version-skewed server renamed/dropped a field the output relies on.
+        print(f"Error: unexpected response from server (missing {exc})", file=sys.stderr)
         return 1
     except OSError as exc:
         print(f"Error: {exc}", file=sys.stderr)

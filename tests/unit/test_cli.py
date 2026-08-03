@@ -63,6 +63,20 @@ class TestMainErrorHandling:
         assert rc == 1
         assert "invalid response" in capsys.readouterr().err
 
+    def test_missing_field_returns_exit_1(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # Version-skewed server renames a field the renderer indexes directly.
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = [{"name": "wrong-shape"}]
+        resp.raise_for_status = MagicMock()
+        http = MagicMock()
+        http.get.return_value = resp
+        rc = self._run(["mem-zero", "projects"], http)
+        assert rc == 1
+        assert "unexpected response" in capsys.readouterr().err
+
 
 class TestBuildParser:
     def test_has_all_subcommands(self) -> None:
