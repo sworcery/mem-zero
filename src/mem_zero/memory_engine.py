@@ -6,6 +6,7 @@ import logging
 import time
 import uuid
 
+import numpy as np
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
@@ -565,7 +566,7 @@ class MemoryEngine:
         while True:
             points, next_offset = await self._qdrant.scroll(
                 collection_name=collection,
-                limit=50,
+                limit=256,
                 offset=offset,
                 with_payload=True,
                 with_vectors=False,
@@ -581,16 +582,16 @@ class MemoryEngine:
 
         # Re-embed everything up front, before any destructive operation, so a
         # mid-way embedding failure (e.g. the LLM backend going down) can never
-        # leave the collection deleted-but-not-repopulated.
-        new_points: list[PointStruct] = []
-        for point_id, payload in all_payloads:
-            text = payload.get("text", "")
-            if not text:
-                continue
-            vectors = await self._timed_embed([text])
-            new_points.append(
-                PointStruct(id=point_id, vector=vectors[0], payload=payload)
-            )
+        # leave the collection deleted-but-not-repopulated. Embeds are batched:
+        # one round trip per 64 texts instead of one per memory.
+        texts = [payload.get("text", "") for _, payload in all_payloads]
+        vectors: list[list[float]] = []
+        for i in range(0, len(texts), 64):
+            vectors.extend(await self._timed_embed(texts[i : i + 64]))
+        new_points = [
+            PointStruct(id=point_id, vector=vec, payload=payload)
+            for (point_id, payload), vec in zip(all_payloads, vectors, strict=True)
+        ]
 
         if dimension_change:
             logger.info(
@@ -634,7 +635,7 @@ class MemoryEngine:
         while True:
             points, next_offset = await self._qdrant.scroll(
                 collection_name=collection,
-                limit=50,
+                limit=256,
                 offset=offset,
                 with_payload=True,
                 with_vectors=False,
@@ -683,31 +684,25 @@ class MemoryEngine:
         return {"cleaned": cleaned, "split_into_multiple": split, "skipped": skipped}
 
     @staticmethod
-    def _cosine_similarity(a: list[float], b: list[float]) -> float:
-        dot = sum(x * y for x, y in zip(a, b, strict=True))
-        norm_a = sum(x * x for x in a) ** 0.5
-        norm_b = sum(x * x for x in b) ** 0.5
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
-        return dot / (norm_a * norm_b)
-
-    def _cluster_points(
-        self, points: list, threshold: float
-    ) -> list[list[int]]:
+    def _cluster_points(points: list, threshold: float) -> list[list[int]]:
+        # Vectorized similarity: the previous pure-Python O(n^2) cosine loop
+        # blocked the event loop for seconds once collections passed a few
+        # hundred points; the matrix product is milliseconds.
         n = len(points)
-        vectors = [pt.vector for pt in points]
+        v = np.asarray([pt.vector for pt in points], dtype=np.float64)
+        norms = np.linalg.norm(v, axis=1, keepdims=True)
+        norms[norms == 0.0] = 1.0
+        sims = (v / norms) @ (v / norms).T
+
         used: set[int] = set()
         clusters: list[list[int]] = []
-
         for i in range(n):
             if i in used:
                 continue
             cluster = [i]
             used.add(i)
             for j in range(i + 1, n):
-                if j in used:
-                    continue
-                if self._cosine_similarity(vectors[i], vectors[j]) >= threshold:
+                if j not in used and sims[i, j] >= threshold:
                     cluster.append(j)
                     used.add(j)
             clusters.append(cluster)
@@ -732,7 +727,7 @@ class MemoryEngine:
         while True:
             points, next_offset = await self._qdrant.scroll(
                 collection_name=collection,
-                limit=50,
+                limit=256,
                 offset=offset,
                 with_payload=True,
                 with_vectors=True,
@@ -789,6 +784,16 @@ class MemoryEngine:
             if not consolidated:
                 continue
 
+            # Embed the replacements BEFORE deleting the originals, so an
+            # embedding failure leaves the cluster untouched instead of losing
+            # the old memories with nothing stored in their place.
+            try:
+                vectors = await self._timed_embed(consolidated)
+            except Exception as exc:
+                self._stats.record_error("consolidate", str(exc))
+                logger.warning("Embedding failed for cluster, skipping")
+                continue
+
             old_ids = [str(pt.id) for pt in pts]
             await self._qdrant.delete(
                 collection_name=collection, points_selector=old_ids
@@ -799,26 +804,22 @@ class MemoryEngine:
             earliest = min(
                 pt.payload.get("created_at", now) for pt in pts
             )
-            for fact in consolidated:
-                vectors = await self._timed_embed([fact])
-                point_id = str(uuid.uuid4())
-                await self._qdrant.upsert(
-                    collection_name=collection,
-                    points=[
-                        PointStruct(
-                            id=point_id,
-                            vector=vectors[0],
-                            payload={
-                                "text": fact,
-                                "user_id": user_id,
-                                "project": project_slug,
-                                "created_at": earliest,
-                                "updated_at": now,
-                            },
-                        )
-                    ],
+            new_pts = [
+                PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector=vec,
+                    payload={
+                        "text": fact,
+                        "user_id": user_id,
+                        "project": project_slug,
+                        "created_at": earliest,
+                        "updated_at": now,
+                    },
                 )
-                total_created += 1
+                for fact, vec in zip(consolidated, vectors, strict=True)
+            ]
+            await self._qdrant.upsert(collection_name=collection, points=new_pts)
+            total_created += len(new_pts)
 
         logger.info(
             "Consolidated %s: %d clusters, %d removed, %d created",
@@ -841,17 +842,22 @@ class MemoryEngine:
 
     async def list_projects(self) -> list[ProjectInfo]:
         prefix = f"{self._config.collection_prefix}_"
-        projects: list[ProjectInfo] = []
-        for col in (await self._qdrant.get_collections()).collections:
-            if col.name.startswith(prefix):
-                slug = col.name[len(prefix) :]
-                info = await self._qdrant.get_collection(col.name)
-                projects.append(
-                    ProjectInfo(
-                        slug=slug,
-                        collection=col.name,
-                        memory_count=info.points_count or 0,
-                        last_updated=self._stats.get_last_activity(slug),
-                    )
-                )
-        return projects
+        matching = [
+            c.name
+            for c in (await self._qdrant.get_collections()).collections
+            if c.name.startswith(prefix)
+        ]
+        # Fetch collection infos concurrently — sequential get_collection calls
+        # made this endpoint an N+1 that backed every dashboard refresh.
+        infos = await asyncio.gather(
+            *(self._qdrant.get_collection(name) for name in matching)
+        )
+        return [
+            ProjectInfo(
+                slug=name[len(prefix) :],
+                collection=name,
+                memory_count=info.points_count or 0,
+                last_updated=self._stats.get_last_activity(name[len(prefix) :]),
+            )
+            for name, info in zip(matching, infos, strict=True)
+        ]

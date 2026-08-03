@@ -155,6 +155,8 @@ class OllamaBackend(LLMBackend):
                     "input": texts,
                     "keep_alive": "30m",
                 },
+                # Batched inputs on a cold model can exceed the client default.
+                timeout=120.0,
             )
             resp.raise_for_status()
             return resp.json()["embeddings"]
