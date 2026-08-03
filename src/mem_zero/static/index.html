@@ -1602,12 +1602,12 @@
               <div class="mini-stat-val" id="pms-active" style="font-size:13px">—</div>
             </div>
             <div class="mini-stat">
-              <div class="mini-stat-label">Avg Score</div>
-              <div class="mini-stat-val" id="pms-score">—</div>
+              <div class="mini-stat-label">Adds</div>
+              <div class="mini-stat-val" id="pms-adds">—</div>
             </div>
             <div class="mini-stat">
-              <div class="mini-stat-label">Dedup Rate</div>
-              <div class="mini-stat-val" id="pms-dedup">—</div>
+              <div class="mini-stat-label">Searches</div>
+              <div class="mini-stat-val" id="pms-searches">—</div>
             </div>
           </div>
           <div class="mcp-row">
@@ -1899,6 +1899,8 @@
     setTimeout(() => el.remove(), 3500);
   }
 
+  let modalDismiss = null; // resolves the active showConfirm(false) on dismiss
+
   function showConfirm(title, body, confirmLabel='Confirm') {
     return new Promise(resolve => {
       $('modal-title').textContent = title;
@@ -1909,10 +1911,12 @@
         $('modal-backdrop').classList.remove('open');
         $('modal-confirm').onclick = null;
         $('modal-cancel').onclick  = null;
+        modalDismiss = null;
         resolve(v);
       };
       $('modal-confirm').onclick = () => finish(true);
       $('modal-cancel').onclick  = () => finish(false);
+      modalDismiss = () => finish(false);
     });
   }
 
@@ -1944,7 +1948,9 @@
     if (!res.ok) {
       let detail = res.statusText;
       try { const j = await res.json(); detail = j.detail || JSON.stringify(j); } catch (_) {}
-      throw new Error(detail);
+      const err = new Error(detail);
+      err.status = res.status;
+      throw err;
     }
     const ct = res.headers.get('content-type') || '';
     if (ct.includes('application/json')) return res.json();
@@ -2098,26 +2104,32 @@
     $('pms-count').textContent = proj ? fmtN(proj.memory_count) : '—';
     const lastTs = proj && (proj.last_updated || proj.created_at);
     $('pms-active').textContent = lastTs ? relTime(lastTs) : '—';
-    // score and dedup come from diagnostics if available
-    if (S.diagData && S.diagData.accuracy) {
-      const acc = S.diagData.accuracy;
-      const avg = acc.search && acc.search.avg_score;
-      $('pms-score').textContent = avg !== undefined && avg !== null ? avg.toFixed(2) : '—';
-      const de = acc.dedup && acc.dedup.effectiveness;
-      $('pms-dedup').textContent = de || '—';
-    }
+    // Per-project counters ride along in the global diagnostics snapshot.
+    // (The old tiles showed GLOBAL avg-score/dedup mislabeled as per-project.)
+    const pc = (S.diagData && S.diagData.projects && S.diagData.projects[S.activeSlug]) || null;
+    $('pms-adds').textContent     = pc ? fmtN(pc.add_memory || 0) : '—';
+    $('pms-searches').textContent = pc ? fmtN(pc.search || 0)     : '—';
   }
 
   // ─── Memory list ────────────────────────────────────────────────────────────
-  async function loadMemories() {
+  // Guards loadMemories/runSearch against out-of-order responses: a slower
+  // earlier request must never clobber a later one (or another project's view).
+  let memReqSeq = 0;
+
+  async function loadMemories(limit = 100) {
     if (!S.activeSlug) return;
+    const slug = S.activeSlug;
+    const seq  = ++memReqSeq;
     const list = $('mem-list');
     list.innerHTML = [1,2,3].map(() => `<div class="skeleton" style="height:70px;margin-bottom:8px"></div>`).join('');
     try {
-      S.memories   = await API.memories(S.activeSlug);
+      const rows = await API.memories(slug, limit);
+      if (seq !== memReqSeq || S.activeSlug !== slug) return; // stale response
+      S.memories   = rows;
       S.searchMode = false;
       S.searchQuery = '';
     } catch (e) {
+      if (seq !== memReqSeq || S.activeSlug !== slug) return;
       toast('Failed to load memories: ' + e.message, 'err');
       S.memories = [];
     }
@@ -2130,7 +2142,11 @@
     if (S.searchMode) {
       lbl.innerHTML = `Search results for <strong>${esc(S.searchQuery)}</strong> — ${S.memories.length} found`;
     } else {
-      lbl.innerHTML = '';
+      const proj  = S.projects.find(p => p.slug === S.activeSlug);
+      const total = proj ? proj.memory_count : S.memories.length;
+      lbl.innerHTML = total > S.memories.length
+        ? `Showing <strong>${S.memories.length}</strong> of <strong>${fmtN(total)}</strong> — <a href="#" id="mem-load-all" style="color:var(--cyan)">load all</a>`
+        : '';
     }
     if (!S.memories.length) {
       list.innerHTML = `<div class="empty">${S.searchMode ? 'No results.' : 'No memories yet.'}</div>`;
@@ -2157,6 +2173,12 @@
     const btn = e.target.closest('.mem-del-btn');
     if (!btn) return;
     deleteOne(btn.dataset.id);
+  });
+
+  $('mem-mode-label').addEventListener('click', e => {
+    if (e.target.id !== 'mem-load-all') return;
+    e.preventDefault();
+    loadMemories(1000); // backend cap
   });
 
   async function deleteOne(id) {
@@ -2194,15 +2216,22 @@
 
   async function runSearch(q) {
     if (!S.activeSlug) return;
-    S.searchMode  = true;
-    S.searchQuery = q;
+    const slug = S.activeSlug;
+    const seq  = ++memReqSeq;
     const list = $('mem-list');
     list.innerHTML = `<div class="skeleton" style="height:70px;margin-bottom:8px"></div>`.repeat(3);
     try {
-      S.memories = await API.search(S.activeSlug, q);
+      const rows = await API.search(slug, q);
+      if (seq !== memReqSeq || S.activeSlug !== slug) return; // stale response
+      S.memories    = rows;
+      S.searchMode  = true;
+      S.searchQuery = q;
     } catch (e) {
+      if (seq !== memReqSeq || S.activeSlug !== slug) return;
       toast('Search failed: ' + e.message, 'err');
-      S.memories = [];
+      S.memories   = [];
+      S.searchMode = true;
+      S.searchQuery = q;
     }
     renderMemList();
   }
@@ -2443,7 +2472,9 @@
         S.opsLog = entries.slice(0, 20);
       }
     } catch (e) {
-      if (e.message && e.message.includes('404')) S.diagData = null;
+      // 404 means diagnostics are disabled; other failures keep last-known
+      // data (checkHealth already surfaces a fully-unreachable server).
+      if (e.status === 404) S.diagData = null;
     }
   }
 
@@ -2656,7 +2687,7 @@
 
   // ─── Diagnostics tab rendering ────────────────────────────────────────────────
   async function renderDiagnostics() {
-    if (!S.diagData) await loadDiagnostics();
+    await loadDiagnostics();
     const cont   = $('diag-content');
     const dismsg = $('diag-disabled-msg');
     if (!S.diagData) {
@@ -2695,10 +2726,12 @@
     const acc  = S.diagData.accuracy || {};
     const dist = (acc.search && acc.search.score_distribution) || {};
     const sdCont = $('diag-score-dist');
-    const buckets = ['0.9-1.0','0.8-0.9','0.7-0.8','0.6-0.7','0.5-0.6','0.0-0.5'];
-    const bucketColors = { '0.9-1.0':'var(--green)','0.8-0.9':'var(--green)',
-      '0.7-0.8':'var(--blue)','0.6-0.7':'var(--yellow)',
-      '0.5-0.6':'var(--orange)','0.0-0.5':'var(--red)' };
+    // Bucket names must match what stats.py emits, or every lookup misses
+    // and the card renders permanently empty.
+    const buckets = ['0.8-1.0','0.6-0.8','0.4-0.6','0.2-0.4','0.0-0.2'];
+    const bucketColors = { '0.8-1.0':'var(--green)','0.6-0.8':'var(--blue)',
+      '0.4-0.6':'var(--yellow)','0.2-0.4':'var(--orange)',
+      '0.0-0.2':'var(--red)' };
     const distCounts = buckets.map(b => dist[b] || 0);
     const distMax = Math.max(...distCounts, 1);
     if (distCounts.every(c => c === 0)) {
@@ -3038,13 +3071,29 @@
   window.addEventListener('popstate', () => switchTab(readHash(), false));
 
   $('modal-backdrop').addEventListener('click', e => {
-    if (e.target === $('modal-backdrop')) $('modal-backdrop').classList.remove('open');
+    // Route through the active confirm's dismiss so the awaiting caller's
+    // promise resolves false instead of hanging forever.
+    if (e.target === $('modal-backdrop') && modalDismiss) modalDismiss();
   });
 
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && $('modal-backdrop').classList.contains('open')) {
-      $('modal-backdrop').classList.remove('open');
-    }
+    if (e.key === 'Escape' && modalDismiss) modalDismiss();
+  });
+
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      // Redraw pixel-sized canvases from cached state only — no refetch.
+      if (S.currentTab === 'overview' && S.diagData) { renderOvChart(); renderOvGrowth(); }
+      if (S.currentTab === 'diagnostics' && S.diagData && S.perfHistory) {
+        drawSingleChart($('diag-chart-add'),
+          S.perfHistory['add_memory'], perfThresh('add_memory'), '#4ade80');
+        drawSingleChart($('diag-chart-search'),
+          S.perfHistory['search'] || S.perfHistory['search_memory'],
+          perfThresh('search_memory'), '#60a5fa');
+      }
+    }, 150);
   });
 
   // ─── Boot ──────────────────────────────────────────────────────────────────────
@@ -3054,12 +3103,11 @@
     switchTab(initTab, false);
     setInterval(checkHealth,  30_000);
     setInterval(loadProjects, 60_000);
-    setInterval(async () => {
-      if (S.currentTab === 'overview' || S.currentTab === 'diagnostics') {
-        await loadDiagnostics();
-        if (S.currentTab === 'overview')     renderOverview();
-        if (S.currentTab === 'diagnostics')  renderDiagnostics();
-      }
+    setInterval(() => {
+      // Each render function fetches diagnostics itself — calling
+      // loadDiagnostics here too made every tick fetch twice.
+      if (S.currentTab === 'overview')    renderOverview();
+      if (S.currentTab === 'diagnostics') renderDiagnostics();
     }, 15_000);
   }
 
