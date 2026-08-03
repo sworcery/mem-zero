@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 
@@ -27,22 +28,31 @@ logger = logging.getLogger(__name__)
 RESERVED_PAYLOAD_KEYS = frozenset({"text", "user_id", "project", "created_at", "updated_at"})
 
 EXTRACT_PROMPT = """\
-You are a memory extraction system. Extract distinct, atomic facts from the \
-input text. Each fact should be a single, self-contained statement that captures \
-one piece of information — a preference, habit, biographical detail, technical \
-choice, opinion, or anything worth remembering about the user.
+You are a memory extraction system for an engineering project's long-term \
+notes. Extract facts worth remembering in future work sessions: decisions and \
+their reasoning, gotchas, workarounds, dead ends, conventions, and preferences.
 
-Rules:
-- Write each fact as a short, third-person statement.
-- Do NOT include facts that are purely transient or conversational filler.
-- If the text contains no memorable facts, return an empty list.
-- Respond with ONLY a JSON array of strings, no other text.
+Rules for each fact:
+- One complete, self-contained sentence. A reader with no other context must \
+understand it fully — name systems, tools, and components explicitly.
+- Never start a fact with "This", "It", "That", "Also", or a dangling \
+reference. Restate the subject instead.
+- Keep the reasoning attached to the decision when the input gives one \
+("X was chosen over Y because Z").
+- Write personal preferences as "User prefers ..." or "User never ...".
+- EXCLUDE transient status: test results, version bumps, "all tests pass", \
+per-file change lists, greetings, thanks, conversational filler.
+- EXCLUDE fragments that cannot stand alone ("Root cause", "Solution", lone \
+tool names).
+- If nothing qualifies, return {"facts": []}.
 
-Example input: "I'm a data scientist working at Acme Corp. I prefer Python over R \
-and I've been using PostgreSQL for my data pipelines."
+Example input: "Fixed the sync bug. Root cause: the API returns timestamps in \
+local time, not UTC. Also bumped to 1.2.4, all tests pass. We should always \
+normalize to UTC at ingestion from now on."
 
-Example output: ["User is a data scientist", "User works at Acme Corp", \
-"User prefers Python over R", "User uses PostgreSQL for data pipelines"]
+Example output: {"facts": ["The sync bug was caused by the API returning \
+timestamps in local time instead of UTC.", "Timestamps must always be \
+normalized to UTC at ingestion."]}
 """
 
 CONSOLIDATE_PROMPT = """\
@@ -68,25 +78,36 @@ MEMORY FRAGMENTS:
 """
 
 DEDUP_PROMPT = """\
-You are a memory deduplication system. Compare a NEW fact against EXISTING \
-memories and decide what to do.
+You are a memory deduplication system for an engineering project's long-term \
+notes. Decide how a NEW fact relates to the EXISTING memories.
 
-Respond with ONLY a JSON object:
-- If the new fact is truly novel: {{"action": "add"}}
-- If it updates/replaces an existing memory: \
-{{"action": "update", "id": "<memory_id>", "text": "<merged text>"}}
-- If it duplicates an existing memory with no new info: {{"action": "skip"}}
+Pick exactly one action:
+- "skip": the new fact contains no information that is missing from the \
+existing memories.
+- "update": the new fact adds NEW information to, corrects, or supersedes \
+exactly ONE existing memory. Return that memory's "id", and "text": a single \
+self-contained statement keeping ALL information from the old memory plus the \
+new fact. If old and new conflict, the new fact wins.
+- "add": the new fact is about something no existing memory covers. Two \
+memories that mention the same tool or system are still different facts if \
+they state different things.
 
-EXISTING MEMORIES:
-{existing}
+If unsure between add and update, choose add. Never merge more than one \
+existing memory.
 
-NEW FACT:
-{new_fact}
+Respond with ONLY a JSON object: {"action": "add"} or {"action": "skip"} or \
+{"action": "update", "id": "<memory_id>", "text": "<merged statement>"}
 """
 
 # Schemas passed to the LLM backend to grammar-constrain output to the exact
 # expected shape (Ollama supports this) instead of relying on the prompt alone.
-EXTRACT_SCHEMA = {"type": "array", "items": {"type": "string"}}
+# NOTE: never add minLength here — Ollama grammar-enforces it by padding the
+# string with degenerate rambling when the model wants to stop early.
+EXTRACT_SCHEMA = {
+    "type": "object",
+    "properties": {"facts": {"type": "array", "items": {"type": "string"}}},
+    "required": ["facts"],
+}
 
 CONSOLIDATE_SCHEMA = {"type": "array", "items": {"type": "string"}}
 
@@ -99,6 +120,22 @@ DEDUP_SCHEMA = {
     },
     "required": ["action"],
 }
+
+
+# Facts opening with a dangling reference depend on context that is not
+# stored with them, so they are meaningless on retrieval.
+_CONTEXT_DEPENDENT = re.compile(
+    r"^(this|that|it|its|they|these|those|also|additionally|however)\b",
+    re.IGNORECASE,
+)
+
+# Cosine gates calibrated against mxbai-embed-large on real memory pairs:
+# identical 1.00, paraphrase 0.98, supersession 0.91, additive detail 0.81,
+# same-topic-different-fact 0.67, unrelated 0.47. Above SKIP the new fact is
+# a rewording (the LLM reliably mislabels these "update"); below RELEVANT a
+# candidate is noise that only invites bad merges.
+DEDUP_AUTO_SKIP_SCORE = 0.95
+DEDUP_RELEVANT_SCORE = 0.60
 
 
 class EmbeddingError(Exception):
@@ -243,6 +280,19 @@ class MemoryEngine:
                 collected.append(key)
         return collected
 
+    @staticmethod
+    def _valid_fact(fact: str) -> bool:
+        # Python-side junk gate: kills ", ", "Root cause", lone tool names,
+        # and context-dependent fragments regardless of what the LLM emits.
+        fact = fact.strip()
+        if len(fact) < 20:
+            return False
+        if len(fact.split()) < 4:
+            return False
+        if not any(c.isalpha() for c in fact):
+            return False
+        return not _CONTEXT_DEPENDENT.match(fact)
+
     async def _extract_facts(self, text: str) -> list[str]:
         self._stats.inc("extract_facts")
         try:
@@ -253,22 +303,37 @@ class MemoryEngine:
             raise LLMError(f"Fact extraction failed: {exc}") from exc
         try:
             parsed = json.loads(raw)
-            if isinstance(parsed, dict):
-                parsed = self._facts_from_dict(parsed)
-            if not isinstance(parsed, list):
-                self._stats.inc("extract_facts.produced", 1)
-                return [str(parsed)]
-            facts = [str(f) for f in parsed if f]
-            if not facts:
-                logger.warning("LLM returned empty fact list, storing raw text")
-                self._stats.inc("extract_facts.empty")
-                return [text]
-            self._stats.inc("extract_facts.produced", len(facts))
-            return facts
         except json.JSONDecodeError:
-            logger.warning("LLM returned non-JSON for extraction, storing raw text")
+            # Rare with schema-constrained output; retry once, then fail the
+            # add. Storing the raw input blob (the old fallback) polluted the
+            # store with unsearchable conversation dumps.
             self._stats.inc("extract_facts.json_failures")
-            return [text]
+            try:
+                raw = await self._timed_generate(
+                    EXTRACT_PROMPT, text, schema=EXTRACT_SCHEMA
+                )
+                parsed = json.loads(raw)
+            except Exception as exc:
+                self._stats.inc("extract_facts.llm_failures")
+                self._stats.record_error("extract_facts", str(exc))
+                raise LLMError(f"Fact extraction failed: {exc}") from exc
+
+        if isinstance(parsed, dict):
+            parsed = self._facts_from_dict(parsed)
+        if not isinstance(parsed, list):
+            parsed = [str(parsed)]
+        candidates = [str(f).strip() for f in parsed if f]
+        facts = [f for f in candidates if self._valid_fact(f)]
+        rejected = len(candidates) - len(facts)
+        if rejected:
+            self._stats.inc("extract_facts.rejected", rejected)
+        if not facts:
+            # An empty result is the model correctly declining to store
+            # filler — a success, not a failure.
+            self._stats.inc("extract_facts.no_facts")
+            return []
+        self._stats.inc("extract_facts.produced", len(facts))
+        return facts
 
     async def _dedup_fact(
         self,
@@ -286,18 +351,31 @@ class MemoryEngine:
         results = await self.search_in_collection(
             collection, fact, top_k=5, user_id=user_id, query_vector=fact_vector
         )
+        # Deterministic gates around the LLM call: near-identical rewordings
+        # skip without a call (the LLM labels them "update" 6/6 times and
+        # rewrites unchanged content), and sub-relevance candidates are
+        # dropped so they can't invite bad merges.
+        if (
+            results
+            and results[0].score is not None
+            and results[0].score >= DEDUP_AUTO_SKIP_SCORE
+        ):
+            self._stats.inc("dedup.auto_skip")
+            self._stats.inc("dedup.skip")
+            return "skip", None, None
+        results = [
+            r for r in results if r.score is None or r.score >= DEDUP_RELEVANT_SCORE
+        ]
         if not results:
             self._stats.inc("dedup.add")
             return "add", None, None
 
         existing_lines = "\n".join(f"- [id={r.id}] {r.text}" for r in results)
-        if not existing_lines:
-            self._stats.inc("dedup.add")
-            return "add", None, None
-
-        prompt = DEDUP_PROMPT.format(existing=existing_lines, new_fact=fact)
+        user_content = f"EXISTING MEMORIES:\n{existing_lines}\n\nNEW FACT:\n{fact}"
         try:
-            raw = await self._timed_generate(prompt, "", schema=DEDUP_SCHEMA)
+            raw = await self._timed_generate(
+                DEDUP_PROMPT, user_content, schema=DEDUP_SCHEMA
+            )
         except Exception as exc:
             self._stats.record_error("dedup", str(exc))
             self._stats.inc("dedup.add")
@@ -316,12 +394,14 @@ class MemoryEngine:
         action = result.get("action", "add")
         update_id = result.get("id")
         # An "update" with no id would otherwise fall through both branches in
-        # add() and silently drop the fact; treat it as a plain add.
-        if action == "update" and not update_id:
+        # add() and silently drop the fact; an "update" with no merged text
+        # would replace the existing memory's content with the bare new fact,
+        # destroying the old information. Both degrade to a plain add.
+        if action == "update" and not (update_id and result.get("text")):
             action = "add"
         self._stats.inc(f"dedup.{action}")
         if action == "update":
-            return "update", update_id, result.get("text", fact)
+            return "update", update_id, result["text"]
         if action == "skip":
             return "skip", None, None
         return "add", None, None
@@ -771,7 +851,11 @@ class MemoryEngine:
                     consolidated = [consolidated]
                 if not isinstance(consolidated, list):
                     continue
-                consolidated = [str(f) for f in consolidated if f and str(f).strip()]
+                consolidated = [
+                    str(f).strip()
+                    for f in consolidated
+                    if f and self._valid_fact(str(f))
+                ]
             except json.JSONDecodeError:
                 self._stats.inc("consolidate.json_failures")
                 logger.warning("Consolidation LLM call failed for cluster, skipping")

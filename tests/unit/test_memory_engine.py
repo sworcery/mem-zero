@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -208,66 +209,113 @@ class TestAdd:
         assert mock_qdrant.upsert.call_count == 3
 
 
+FACT_A = "User prefers Python over R for data pipeline work"
+FACT_B = "PostgreSQL was chosen over Redis because sessions need ACID transactions"
+
+
+class TestValidFact:
+    def test_accepts_self_contained_sentence(self) -> None:
+        assert MemoryEngine._valid_fact(FACT_A) is True
+
+    @pytest.mark.parametrize(
+        "junk",
+        [
+            ", ",
+            "Root cause",
+            "Solution",
+            "Qdrant",
+            "12345 67890 12345 67890",  # no letters
+            "This prevents config loss across container updates",
+            "It uses skopeo to push images to the local registry",
+            "Also the registry uses a self-signed certificate",
+        ],
+    )
+    def test_rejects_junk(self, junk: str) -> None:
+        assert MemoryEngine._valid_fact(junk) is False
+
+
 class TestExtractFacts:
     @pytest.mark.asyncio
-    async def test_empty_list_falls_back_to_raw_text(
+    async def test_empty_list_returns_no_facts(
         self, engine: MemoryEngine, mock_backend: AsyncMock
     ) -> None:
-        mock_backend.generate.return_value = "[]"
-        facts = await engine._extract_facts("some user input")
-        assert facts == ["some user input"]
+        # An empty extraction is the model correctly declining filler — the
+        # raw input must NOT be stored as a memory (the old fallback).
+        mock_backend.generate.return_value = '{"facts": []}'
+        facts = await engine._extract_facts("ok sounds good, thanks!")
+        assert facts == []
 
     @pytest.mark.asyncio
     async def test_valid_facts_returned(
         self, engine: MemoryEngine, mock_backend: AsyncMock
     ) -> None:
-        mock_backend.generate.return_value = '["fact one", "fact two"]'
+        mock_backend.generate.return_value = json.dumps({"facts": [FACT_A, FACT_B]})
         facts = await engine._extract_facts("some text")
-        assert facts == ["fact one", "fact two"]
+        assert facts == [FACT_A, FACT_B]
+
+    @pytest.mark.asyncio
+    async def test_bare_array_still_accepted(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        mock_backend.generate.return_value = json.dumps([FACT_A])
+        facts = await engine._extract_facts("some text")
+        assert facts == [FACT_A]
+
+    @pytest.mark.asyncio
+    async def test_junk_facts_filtered_out(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        mock_backend.generate.return_value = json.dumps(
+            {"facts": [FACT_A, "Root cause", ", "]}
+        )
+        facts = await engine._extract_facts("some text")
+        assert facts == [FACT_A]
 
     @pytest.mark.asyncio
     async def test_dict_keys_extracted_as_facts(
         self, engine: MemoryEngine, mock_backend: AsyncMock
     ) -> None:
-        mock_backend.generate.return_value = (
-            '{"User likes Python": true, "User works at Acme": true}'
-        )
+        mock_backend.generate.return_value = json.dumps({FACT_A: True, FACT_B: True})
         facts = await engine._extract_facts("some text")
-        assert facts == ["User likes Python", "User works at Acme"]
-
-    @pytest.mark.asyncio
-    async def test_dict_with_facts_key(
-        self, engine: MemoryEngine, mock_backend: AsyncMock
-    ) -> None:
-        mock_backend.generate.return_value = '{"facts": ["fact one", "fact two"]}'
-        facts = await engine._extract_facts("some text")
-        assert facts == ["fact one", "fact two"]
-
-    @pytest.mark.asyncio
-    async def test_dict_list_value_used(
-        self, engine: MemoryEngine, mock_backend: AsyncMock
-    ) -> None:
-        mock_backend.generate.return_value = '{"greetings": ["hello", "world"]}'
-        facts = await engine._extract_facts("some text")
-        assert facts == ["hello", "world"]
+        assert facts == [FACT_A, FACT_B]
 
     @pytest.mark.asyncio
     async def test_dict_string_values_used_not_keys(
         self, engine: MemoryEngine, mock_backend: AsyncMock
     ) -> None:
-        mock_backend.generate.return_value = (
-            '{"fact1": "User likes Python", "fact2": "User uses Qdrant"}'
+        mock_backend.generate.return_value = json.dumps(
+            {"fact1": FACT_A, "fact2": FACT_B}
         )
         facts = await engine._extract_facts("some text")
-        assert facts == ["User likes Python", "User uses Qdrant"]
+        assert facts == [FACT_A, FACT_B]
+
+    @pytest.mark.asyncio
+    async def test_decode_failure_retries_then_raises(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        # Two bad payloads -> LLMError; the raw input must never be stored.
+        mock_backend.generate.side_effect = ["not json", "still not json"]
+        with pytest.raises(LLMError):
+            await engine._extract_facts("some text")
+        assert mock_backend.generate.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_decode_failure_retry_can_succeed(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        mock_backend.generate.side_effect = [
+            "not json",
+            json.dumps({"facts": [FACT_A]}),
+        ]
+        facts = await engine._extract_facts("some text")
+        assert facts == [FACT_A]
 
     @pytest.mark.asyncio
     async def test_passes_extract_schema_to_backend(
         self, engine: MemoryEngine, mock_backend: AsyncMock
     ) -> None:
-        mock_backend.generate.return_value = '["a fact"]'
+        mock_backend.generate.return_value = json.dumps({"facts": [FACT_A]})
         await engine._extract_facts("some text")
-        # Extraction constrains the model to an array-of-strings schema.
         assert mock_backend.generate.call_args.args[2] == EXTRACT_SCHEMA
 
 
@@ -289,6 +337,116 @@ class TestDedupDegraded:
         mock_qdrant.query_points.return_value = MagicMock(points=[])
         action, _, _ = await engine._dedup_fact("test_proj", "new fact", "john")
         assert action == "add"
+
+
+class TestDedupScoreGates:
+    @pytest.fixture
+    def near_identical(self) -> list[MemoryRecord]:
+        return [
+            MemoryRecord(
+                id="550e8400-e29b-41d4-a716-446655440000",
+                text="User prefers Python over R for data work",
+                user_id="john",
+                created_at=0.0,
+                updated_at=0.0,
+                score=0.98,
+            )
+        ]
+
+    @pytest.mark.asyncio
+    async def test_paraphrase_skipped_without_llm_call(
+        self,
+        engine: MemoryEngine,
+        mock_backend: AsyncMock,
+        near_identical: list[MemoryRecord],
+    ) -> None:
+        with patch.object(
+            engine, "search_in_collection", new_callable=AsyncMock,
+            return_value=near_identical,
+        ):
+            action, _, _ = await engine._dedup_fact(
+                "test_proj", "User likes Python more than R for data work", "john"
+            )
+        assert action == "skip"
+        mock_backend.generate.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_low_score_candidates_add_without_llm_call(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        noise = [
+            MemoryRecord(
+                id="550e8400-e29b-41d4-a716-446655440000",
+                text="An unrelated memory about container updates",
+                user_id="john",
+                created_at=0.0,
+                updated_at=0.0,
+                score=0.45,
+            )
+        ]
+        with patch.object(
+            engine, "search_in_collection", new_callable=AsyncMock,
+            return_value=noise,
+        ):
+            action, _, _ = await engine._dedup_fact(
+                "test_proj", "A brand new fact about the deploy pipeline", "john"
+            )
+        assert action == "add"
+        mock_backend.generate.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_band_still_asks_llm(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        candidate = [
+            MemoryRecord(
+                id="550e8400-e29b-41d4-a716-446655440000",
+                text="Qwen 7b is used for extraction",
+                user_id="john",
+                created_at=0.0,
+                updated_at=0.0,
+                score=0.85,
+            )
+        ]
+        mock_backend.generate.return_value = '{"action": "skip"}'
+        with patch.object(
+            engine, "search_in_collection", new_callable=AsyncMock,
+            return_value=candidate,
+        ):
+            action, _, _ = await engine._dedup_fact(
+                "test_proj", "Qwen 14b is now used for extraction", "john"
+            )
+        assert action == "skip"
+        mock_backend.generate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_without_text_becomes_add(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        # update with an id but no merged text would overwrite the existing
+        # memory with the bare new fact, destroying its content.
+        candidate = [
+            MemoryRecord(
+                id="550e8400-e29b-41d4-a716-446655440000",
+                text="existing memory about the deploy pipeline",
+                user_id="john",
+                created_at=0.0,
+                updated_at=0.0,
+                score=0.80,
+            )
+        ]
+        mock_backend.generate.return_value = (
+            '{"action": "update", "id": "550e8400-e29b-41d4-a716-446655440000"}'
+        )
+        with patch.object(
+            engine, "search_in_collection", new_callable=AsyncMock,
+            return_value=candidate,
+        ):
+            action, update_id, _ = await engine._dedup_fact(
+                "test_proj", "new fact about the deploy pipeline", "john"
+            )
+        assert action == "add"
+        assert update_id is None
 
 
 class TestDedupMalformedResponses:
@@ -466,7 +624,8 @@ class TestConsolidate:
         b = _pt("id-b", "user likes python", [0.99, 0.1])
         c = _pt("id-c", "deploys on unraid", [0.0, 1.0])
         mock_qdrant.scroll.return_value = ([a, b, c], None)
-        mock_backend.generate.return_value = '["merged fact"]'
+        merged = "User likes Python for backend scripting work"
+        mock_backend.generate.return_value = json.dumps([merged])
         result = await engine.consolidate("proj", similarity_threshold=0.75)
         assert result == {
             "clusters": 1, "memories_removed": 2, "memories_created": 1,
@@ -474,7 +633,7 @@ class TestConsolidate:
         del_call = mock_qdrant.delete.call_args
         assert sorted(del_call.kwargs["points_selector"]) == ["id-a", "id-b"]
         new_payload = mock_qdrant.upsert.call_args.kwargs["points"][0].payload
-        assert new_payload["text"] == "merged fact"
+        assert new_payload["text"] == merged
         # Provenance: the merged memory keeps the earliest created_at.
         assert new_payload["created_at"] == 100.0
 

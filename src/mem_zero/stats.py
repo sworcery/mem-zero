@@ -279,9 +279,10 @@ class DiagnosticStats:
         dedup_effective = dedup_skip + dedup_update
 
         extract_total = self._counters.get("extract_facts", 0)
+        # Empty extractions are the model correctly declining filler — a
+        # success. Failures are parse errors and LLM-call errors only.
         extract_failures = (
             self._counters.get("extract_facts.json_failures", 0)
-            + self._counters.get("extract_facts.empty", 0)
             + self._counters.get("extract_facts.llm_failures", 0)
         )
         facts_produced = self._counters.get("extract_facts.produced", 0)
@@ -346,8 +347,11 @@ class DiagnosticStats:
                     "json_parse_failures": self._counters.get(
                         "extract_facts.json_failures", 0
                     ),
-                    "empty_results": self._counters.get(
-                        "extract_facts.empty", 0
+                    "no_facts_inputs": self._counters.get(
+                        "extract_facts.no_facts", 0
+                    ),
+                    "rejected_facts": self._counters.get(
+                        "extract_facts.rejected", 0
                     ),
                     "llm_failures": self._counters.get(
                         "extract_facts.llm_failures", 0
