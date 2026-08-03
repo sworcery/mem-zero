@@ -1,5 +1,46 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# Runs Qdrant under s6 with upstream's OOM recovery-mode behavior (adapted
+# from qdrant's tools/entrypoint.sh: exit 137 before the .qdrant-initialized
+# sentinel exists means it was killed loading collections — likely OOM — so
+# restart once in recovery mode instead of crash-looping).
+#
+# Not `set -e`: this script must inspect nonzero exit codes from `wait`.
+set -uo pipefail
 
 cd /qdrant
-exec /usr/local/bin/qdrant
+
+QDRANT_PID=0
+_forward() { [[ "$QDRANT_PID" -gt 0 ]] && kill -"$1" "$QDRANT_PID" 2>/dev/null; }
+trap '_forward TERM' SIGTERM
+trap '_forward INT' SIGINT
+
+run_qdrant() {
+    /usr/local/bin/qdrant &
+    QDRANT_PID=$!
+    local code
+    wait "$QDRANT_PID"
+    code=$?
+    # A trapped signal interrupts `wait` before the child exits; keep waiting
+    # so s6 sees this service as up until Qdrant has really finished flushing
+    # (this is what makes S6_SERVICES_GRACETIME count).
+    while kill -0 "$QDRANT_PID" 2>/dev/null; do
+        wait "$QDRANT_PID"
+        code=$?
+    done
+    return "$code"
+}
+
+run_qdrant
+EXIT_CODE=$?
+
+INIT_FILE="${QDRANT_INIT_FILE_PATH:-.qdrant-initialized}"
+if [[ "${QDRANT_ALLOW_RECOVERY_MODE:-false}" == "true" \
+      && "$EXIT_CODE" -eq 137 \
+      && ! -f "$INIT_FILE" ]]; then
+    echo "[qdrant] killed during initialization (likely OOM); restarting in recovery mode" >&2
+    export QDRANT__STORAGE__RECOVERY_MODE="Qdrant was killed during initialization. Most likely Out-of-Memory: check memory limits or remove some collections and restart."
+    run_qdrant
+    EXIT_CODE=$?
+fi
+
+exit "$EXIT_CODE"

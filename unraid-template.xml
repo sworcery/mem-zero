@@ -11,7 +11,7 @@
   <Overview>Self-hosted memory server for AI coding assistants. Store, search, and manage persistent context across sessions so your tools remember what happened last week without stuffing everything into the context window. Each project gets its own isolated vector collection with automatic fact extraction, deduplication, and semantic search. Works with Claude Code, Cursor, Windsurf, and any MCP-compatible client. Includes a bundled LLM for zero-config operation, or connect to Ollama or OpenAI for better quality. Web dashboard included for browsing and managing memories.</Overview>
   <Category>Tools:</Category>
   <Icon>https://raw.githubusercontent.com/sworcery/mem-zero/main/icon.png</Icon>
-  <ExtraParams>--add-host=host.docker.internal:host-gateway</ExtraParams>
+  <ExtraParams>--add-host=host.docker.internal:host-gateway --stop-timeout=30</ExtraParams>
   <DateInstalled/>
   <Description>Self-hosted memory server for AI coding assistants. Store, search, and manage persistent context across sessions so your tools remember what happened last week without stuffing everything into the context window. Each project gets its own isolated vector collection with automatic fact extraction, deduplication, and semantic search. Works with Claude Code, Cursor, Windsurf, and any MCP-compatible client. Includes a bundled LLM for zero-config operation, or connect to Ollama or OpenAI for better quality. Web dashboard included for browsing and managing memories.</Description>
   <Config Name="WebUI Port" Target="8765" Default="8765" Mode="tcp" Description="Web dashboard and MCP server HTTP port" Type="Port" Display="always" Required="true" Mask="false">8765</Config>

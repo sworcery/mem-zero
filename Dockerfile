@@ -66,6 +66,9 @@ RUN find /etc/cont-init.d -type f -exec chmod +x {} \; && \
 
 ENV QDRANT__STORAGE__STORAGE_PATH=/mem-zero/storage/qdrant
 ENV QDRANT__TELEMETRY_DISABLED=true
+# On an exit-137 during collection load, restart once in recovery mode
+# (handled by the qdrant run script) instead of crash-looping forever.
+ENV QDRANT_ALLOW_RECOVERY_MODE=true
 ENV QDRANT_HOST=127.0.0.1
 ENV QDRANT_PORT=6333
 ENV EMBEDDER_DIMENSIONS=768
@@ -81,10 +84,17 @@ VOLUME ["/mem-zero/storage"]
 EXPOSE 8765 6333
 
 ENV S6_KEEP_ENV=1
-ENV S6_CMD_WAIT_FOR_SERVICES_MAXTIME=600000
 ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
+# Give Qdrant time to flush and exit cleanly on shutdown (values in ms).
+# Total worst case (15s TERM wait + 5s stage-3 kill grace) stays under the
+# 30s Docker stop budget set in compose / the Unraid template.
+ENV S6_SERVICES_GRACETIME=15000
+ENV S6_KILL_GRACETIME=5000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8765/health || exit 1
+# start-period covers a worst-case first boot: ~2.5GB of model downloads on a
+# slow connection before services even start. A passing probe flips the
+# container healthy immediately regardless, so the generosity costs nothing.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=1800s --retries=3 \
+    CMD curl -fsS "http://127.0.0.1:${PORT:-8765}/health" || exit 1
 
 ENTRYPOINT ["/init"]

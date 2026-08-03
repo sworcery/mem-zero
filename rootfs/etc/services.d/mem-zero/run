@@ -12,7 +12,7 @@ for _ in $(seq 1 60); do
 done
 
 if ! curl -fsS "http://127.0.0.1:6333/readyz" >/dev/null 2>&1; then
-    echo "[mem-zero] ERROR: Qdrant not ready after 60s" >&2
+    echo "[mem-zero] Qdrant not ready after 60s; s6 will restart this service and retry" >&2
     exit 1
 fi
 

@@ -29,7 +29,10 @@ mkdir -p "$MODEL_DIR"
 
 if [[ ! -f "$GGUF_PATH" ]]; then
     echo "[mem-zero] Downloading bundled LLM model (this only happens once)..."
-    if curl -fSL --retry 3 -o "${GGUF_PATH}.tmp" "$GGUF_URL"; then
+    # --speed-limit/--speed-time abort a silently stalled transfer, which
+    # would otherwise hang cont-init (and the whole container) forever.
+    if curl -fSL --retry 3 --connect-timeout 30 --speed-limit 10240 --speed-time 60 \
+            -o "${GGUF_PATH}.tmp" "$GGUF_URL"; then
         mv "${GGUF_PATH}.tmp" "$GGUF_PATH"
         echo "[mem-zero] LLM model downloaded: $GGUF_PATH"
     else
