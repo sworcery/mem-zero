@@ -6,7 +6,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from mem_zero.config import Config
-from mem_zero.memory_engine import EXTRACT_SCHEMA, MemoryEngine, validate_memory_id
+from mem_zero.memory_engine import (
+    EXTRACT_SCHEMA,
+    LLMError,
+    MemoryEngine,
+    validate_memory_id,
+)
 from mem_zero.models import MemoryRecord
 from mem_zero.stats import DiagnosticStats
 
@@ -28,9 +33,25 @@ def mock_backend() -> AsyncMock:
     backend = AsyncMock()
     backend.embedding_dimensions = 768
     backend.is_degraded = False
-    backend.embed.return_value = [[0.1] * 768]
+    # Length-aware: batched embed calls get one vector per input text.
+    backend.embed.side_effect = lambda texts: [[0.1] * 768 for _ in texts]
     backend.generate.return_value = '["test memory"]'
     return backend
+
+
+def _pt(id_: str, text: str, vector: list[float], **payload):
+    """A MagicMock Qdrant point with the standard payload shape."""
+    p = MagicMock()
+    p.id = id_
+    p.vector = vector
+    p.payload = {
+        "text": text,
+        "user_id": "john",
+        "created_at": 100.0,
+        "updated_at": 100.0,
+        **payload,
+    }
+    return p
 
 
 @pytest.fixture
@@ -434,3 +455,189 @@ class TestUpdatePreservesCreatedAt:
         payload = mock_qdrant.upsert.call_args.kwargs["points"][0].payload
         assert payload["created_at"] == 12345.0
         assert payload["updated_at"] != 12345.0
+
+
+class TestConsolidate:
+    @pytest.mark.asyncio
+    async def test_merges_similar_cluster(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        a = _pt("id-a", "likes python", [1.0, 0.0])
+        b = _pt("id-b", "user likes python", [0.99, 0.1])
+        c = _pt("id-c", "deploys on unraid", [0.0, 1.0])
+        mock_qdrant.scroll.return_value = ([a, b, c], None)
+        mock_backend.generate.return_value = '["merged fact"]'
+        result = await engine.consolidate("proj", similarity_threshold=0.75)
+        assert result == {
+            "clusters": 1, "memories_removed": 2, "memories_created": 1,
+        }
+        del_call = mock_qdrant.delete.call_args
+        assert sorted(del_call.kwargs["points_selector"]) == ["id-a", "id-b"]
+        new_payload = mock_qdrant.upsert.call_args.kwargs["points"][0].payload
+        assert new_payload["text"] == "merged fact"
+        # Provenance: the merged memory keeps the earliest created_at.
+        assert new_payload["created_at"] == 100.0
+
+    @pytest.mark.asyncio
+    async def test_dry_run_makes_no_changes(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        a = _pt("id-a", "likes python", [1.0, 0.0])
+        b = _pt("id-b", "user likes python", [0.99, 0.1])
+        mock_qdrant.scroll.return_value = ([a, b], None)
+        result = await engine.consolidate("proj", dry_run=True)
+        assert result["clusters"] == 1
+        assert result["previews"][0]["texts"] == ["likes python", "user likes python"]
+        mock_qdrant.delete.assert_not_called()
+        mock_qdrant.upsert.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_llm_failure_skips_cluster_without_deleting(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        a = _pt("id-a", "likes python", [1.0, 0.0])
+        b = _pt("id-b", "user likes python", [0.99, 0.1])
+        mock_qdrant.scroll.return_value = ([a, b], None)
+        mock_backend.generate.side_effect = Exception("ollama down")
+        result = await engine.consolidate("proj")
+        assert result["memories_removed"] == 0
+        mock_qdrant.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_embed_failure_skips_cluster_without_deleting(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        # Replacements are embedded BEFORE the originals are deleted; an
+        # embedding outage must leave the cluster untouched.
+        a = _pt("id-a", "likes python", [1.0, 0.0])
+        b = _pt("id-b", "user likes python", [0.99, 0.1])
+        mock_qdrant.scroll.return_value = ([a, b], None)
+        mock_backend.generate.return_value = '["merged fact"]'
+        mock_backend.embed.side_effect = Exception("embed down")
+        result = await engine.consolidate("proj")
+        assert result["memories_removed"] == 0
+        mock_qdrant.delete.assert_not_called()
+        mock_qdrant.upsert.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_degraded_mode_refuses(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        mock_backend.is_degraded = True
+        with pytest.raises(LLMError, match="degraded"):
+            await engine.consolidate("proj")
+
+    @pytest.mark.asyncio
+    async def test_fewer_than_two_points_noop(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        mock_qdrant.scroll.return_value = ([_pt("id-a", "x", [1.0, 0.0])], None)
+        result = await engine.consolidate("proj")
+        assert result == {"clusters": 0, "memories_removed": 0, "memories_created": 0}
+
+
+class TestCleanupText:
+    @pytest.mark.asyncio
+    async def test_single_key_dict_rewritten_in_place(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        pt = _pt("id-a", "{'User prefers dark mode': True}", [0.1])
+        mock_qdrant.scroll.return_value = ([pt], None)
+        result = await engine.cleanup_text("proj")
+        assert result == {"cleaned": 1, "split_into_multiple": 0, "skipped": 0}
+        payload = mock_qdrant.upsert.call_args.kwargs["points"][0].payload
+        assert payload["text"] == "User prefers dark mode"
+        mock_qdrant.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_multi_key_dict_split_into_points(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        pt = _pt("id-a", "{'fact one': True, 'fact two': True}", [0.1])
+        mock_qdrant.scroll.return_value = ([pt], None)
+        result = await engine.cleanup_text("proj")
+        assert result == {"cleaned": 1, "split_into_multiple": 1, "skipped": 0}
+        mock_qdrant.delete.assert_called_once()
+        texts = [
+            c.kwargs["points"][0].payload["text"]
+            for c in mock_qdrant.upsert.call_args_list
+        ]
+        assert texts == ["fact one", "fact two"]
+
+    @pytest.mark.asyncio
+    async def test_normal_text_skipped(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        pt = _pt("id-a", "a normal memory", [0.1])
+        mock_qdrant.scroll.return_value = ([pt], None)
+        result = await engine.cleanup_text("proj")
+        assert result == {"cleaned": 0, "split_into_multiple": 0, "skipped": 1}
+        mock_qdrant.upsert.assert_not_called()
+
+
+class TestDeleteProject:
+    @pytest.mark.asyncio
+    async def test_deletes_existing(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        col = MagicMock()
+        col.name = "test_proj"
+        mock_qdrant.get_collections.return_value = MagicMock(collections=[col])
+        assert await engine.delete_project("proj") is True
+        mock_qdrant.delete_collection.assert_called_once_with("test_proj")
+
+    @pytest.mark.asyncio
+    async def test_missing_returns_false(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        assert await engine.delete_project("ghost") is False
+        mock_qdrant.delete_collection.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_clears_ensured_cache(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        # A stale cache entry would let the next add() upsert into a
+        # collection that no longer exists.
+        await engine._ensure_collection("proj")
+        col = MagicMock()
+        col.name = "test_proj"
+        mock_qdrant.get_collections.return_value = MagicMock(collections=[col])
+        await engine.delete_project("proj")
+        assert "test_proj" not in engine._ensured_collections
+
+
+class TestListProjects:
+    @pytest.mark.asyncio
+    async def test_only_prefixed_collections(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        mine = MagicMock()
+        mine.name = "test_alpha"
+        other = MagicMock()
+        other.name = "unrelated_thing"
+        mock_qdrant.get_collections.return_value = MagicMock(
+            collections=[mine, other]
+        )
+        mock_qdrant.get_collection.return_value = MagicMock(points_count=7)
+        projects = await engine.list_projects()
+        assert len(projects) == 1
+        assert projects[0].slug == "alpha"
+        assert projects[0].memory_count == 7
+
+
+class TestReembedPaging:
+    @pytest.mark.asyncio
+    async def test_follows_scroll_offsets(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        info = MagicMock()
+        info.config.params.vectors.size = 768  # no dimension change
+        mock_qdrant.get_collection.return_value = info
+        page1 = [_pt("id-1", "a", [0.1]), _pt("id-2", "b", [0.1])]
+        page2 = [_pt("id-3", "c", [0.1])]
+        mock_qdrant.scroll.side_effect = [(page1, "cursor"), (page2, None)]
+        count = await engine.reembed_all("proj")
+        assert count == 3
+        assert mock_qdrant.scroll.call_count == 2
+        mock_qdrant.delete_collection.assert_not_called()
