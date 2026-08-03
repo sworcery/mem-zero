@@ -10,8 +10,37 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  test:
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install dependencies
+        # Runtime deps minus llama-cpp-python and fastembed: those are only
+        # imported lazily inside BundledBackend.__init__, which the tests mock,
+        # and llama-cpp-python compiles C++ for ~10 minutes in CI.
+        run: |
+          pip install "fastapi>=0.115" "uvicorn[standard]>=0.32" "mcp>=1.9" \
+            "qdrant-client>=1.12" "httpx>=0.28" "pydantic>=2.10" "anyio>=4.0" \
+            "pytest>=8.0" "pytest-asyncio>=0.23" ruff
+
+      - name: Run tests
+        run: PYTHONPATH=src python -m pytest -q
+
+      - name: Lint
+        run: python -m ruff check src/ tests/
+
   build:
     if: ${{ github.server_url == 'https://github.com' }}
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
