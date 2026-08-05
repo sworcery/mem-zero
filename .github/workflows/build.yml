@@ -24,13 +24,22 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        # Runtime deps minus llama-cpp-python and fastembed: those are only
-        # imported lazily inside BundledBackend.__init__, which the tests mock,
-        # and llama-cpp-python compiles C++ for ~10 minutes in CI.
+        # Derived from pyproject so the list cannot drift out of sync (a
+        # hand-written copy silently missed the mcp<2 pin). Skips
+        # llama-cpp-python and fastembed: both are imported lazily inside
+        # BundledBackend, which the tests mock, and llama-cpp-python compiles
+        # C++ for ~10 minutes in CI.
         run: |
-          pip install "fastapi>=0.115" "uvicorn[standard]>=0.32" "mcp>=1.9" \
-            "qdrant-client>=1.12" "httpx>=0.28" "pydantic>=2.10" "anyio>=4.0" \
-            "numpy>=1.24" "pytest>=8.0" "pytest-asyncio>=0.23" ruff
+          pip install tomli
+          python -c "
+          import pathlib, tomli
+          d = tomli.loads(pathlib.Path('pyproject.toml').read_text())
+          skip = ('llama-cpp-python', 'fastembed')
+          deps = [x for x in d['project']['dependencies'] if not x.startswith(skip)]
+          print('\n'.join(deps))
+          " > /tmp/deps.txt
+          cat /tmp/deps.txt
+          pip install -r /tmp/deps.txt "pytest>=8.0" "pytest-asyncio>=0.23" ruff
 
       - name: Run tests
         run: PYTHONPATH=src python -m pytest -q
