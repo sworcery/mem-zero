@@ -123,11 +123,28 @@ DEDUP_SCHEMA = {
 }
 
 
-# Facts opening with a dangling reference depend on context that is not
-# stored with them, so they are meaningless on retrieval.
+# Facts opening with a dangling reference depend on context that is not stored
+# with them ("This prevents config loss..."). Deliberately narrow: it matches a
+# bare demonstrative followed by a verb, so legitimate subjects like "This
+# project uses..." or "These builds download..." are kept. False positives here
+# silently discard real memories, so the prompt is the primary defense.
 _CONTEXT_DEPENDENT = re.compile(
-    r"^(this|that|it|its|they|these|those|also|additionally|however)\b",
+    r"^(?:(?:this|that|these|those)\s+"
+    r"(?:is|was|are|were|prevents|provides|allows|makes|causes|means|requires|"
+    r"fixes|adds|removes|avoids|breaks|helps|ensures|keeps|uses|works|should|"
+    r"must|can|will|has|have|had|does|did|needs|lets)\b"
+    r"|(?:also|additionally)\b)",
     re.IGNORECASE,
+)
+
+# Words whose presence flips a statement's meaning. A near-identical pair that
+# differs only in one of these (or in a number) is a correction, not a
+# rewording, so it must reach the dedup LLM instead of being auto-skipped.
+_NEGATIONS = frozenset(
+    {
+        "not", "no", "never", "cannot", "without", "none", "neither",
+        "don't", "doesn't", "isn't", "won't", "can't", "shouldn't",
+    }
 )
 
 # Cosine gates calibrated against mxbai-embed-large on real memory pairs:
@@ -288,13 +305,24 @@ class MemoryEngine:
         # Python-side junk gate: kills ", ", "Root cause", lone tool names,
         # and context-dependent fragments regardless of what the LLM emits.
         fact = fact.strip()
-        if len(fact) < 20:
+        if len(fact) < 15:
             return False
-        if len(fact.split()) < 4:
+        if len(fact.split()) < 3:
             return False
         if not any(c.isalpha() for c in fact):
             return False
         return not _CONTEXT_DEPENDENT.match(fact)
+
+    @staticmethod
+    def _differs_materially(a: str, b: str) -> bool:
+        # Embedders are insensitive to digit and negation swaps, so
+        # "port 8765" vs "port 8766" scores as a near-duplicate while
+        # actually being a correction.
+        if re.findall(r"\d+", a) != re.findall(r"\d+", b):
+            return True
+        words_a = {w.strip(".,;:!?").lower() for w in a.split()}
+        words_b = {w.strip(".,;:!?").lower() for w in b.split()}
+        return bool((words_a ^ words_b) & _NEGATIONS)
 
     async def _extract_facts(self, text: str) -> list[str]:
         self._stats.inc("extract_facts")
@@ -309,7 +337,8 @@ class MemoryEngine:
         except json.JSONDecodeError:
             # Rare with schema-constrained output; retry once, then fail the
             # add. Storing the raw input blob (the old fallback) polluted the
-            # store with unsearchable conversation dumps.
+            # store with unsearchable conversation dumps. Only one failure
+            # counter is incremented per input so the rate can't exceed 100%.
             self._stats.inc("extract_facts.json_failures")
             try:
                 raw = await self._timed_generate(
@@ -317,7 +346,6 @@ class MemoryEngine:
                 )
                 parsed = json.loads(raw)
             except Exception as exc:
-                self._stats.inc("extract_facts.llm_failures")
                 self._stats.record_error("extract_facts", str(exc))
                 raise LLMError(f"Fact extraction failed: {exc}") from exc
 
@@ -362,6 +390,7 @@ class MemoryEngine:
             results
             and results[0].score is not None
             and results[0].score >= DEDUP_AUTO_SKIP_SCORE
+            and not self._differs_materially(fact, results[0].text)
         ):
             self._stats.inc("dedup.auto_skip")
             self._stats.inc("dedup.skip")
@@ -589,15 +618,17 @@ class MemoryEngine:
             scores = await asyncio.to_thread(
                 lambda: list(reranker.rerank(query, texts))  # type: ignore[attr-defined]
             )
+            for record, score in zip(results, scores, strict=True):
+                # Sigmoid maps the cross-encoder logit to a calibrated 0-1
+                # relevance — far better separated than raw cosine.
+                record.score = round(1 / (1 + math.exp(-score)), 6)
         except Exception as exc:
-            # Rerank is best-effort; cosine ordering is a fine fallback.
+            # Rerank is best-effort; cosine ordering is a fine fallback. The
+            # scoring loop is inside the try so a count mismatch or an extreme
+            # logit can't escape as a 500.
             self._stats.record_error("rerank", str(exc))
             logger.warning("Rerank failed (%s), using vector order", exc)
             return results[:top_k]
-        for record, score in zip(results, scores, strict=True):
-            # Sigmoid maps the cross-encoder logit to a calibrated 0-1
-            # relevance — far better separated than raw cosine.
-            record.score = round(1 / (1 + math.exp(-score)), 6)
         results.sort(key=lambda r: r.score or 0.0, reverse=True)
         self._stats.record_latency("rerank", (time.monotonic() - t0) * 1000)
         return results[:top_k]
@@ -616,7 +647,7 @@ class MemoryEngine:
         if self._config.rerank_enabled:
             # Over-fetch so the cross-encoder has candidates to reorder.
             candidates = await self.search_in_collection(
-                collection, query, top_k=min(max(top_k * 3, top_k), 25)
+                collection, query, top_k=min(top_k * 3, max(25, top_k))
             )
             results = (
                 await self._rerank(query, candidates, top_k)
@@ -665,6 +696,9 @@ class MemoryEngine:
         validate_memory_id(memory_id)
         self._stats.inc("delete")
         self._stats.inc_project(project_slug, "delete")
+        # Without an activity timestamp a delete-only slug would never age out
+        # under the stale-project pruning in stats.flush().
+        self._stats.record_activity(project_slug)
         collection = await self._ensure_collection(project_slug)
         await self._qdrant.delete(
             collection_name=collection,
@@ -675,6 +709,7 @@ class MemoryEngine:
     async def delete_all(self, project_slug: str) -> int:
         self._stats.inc("delete_all")
         self._stats.inc_project(project_slug, "delete_all")
+        self._stats.record_activity(project_slug)
         collection = await self._ensure_collection(project_slug)
         info = await self._qdrant.get_collection(collection)
         count = info.points_count or 0
@@ -903,11 +938,7 @@ class MemoryEngine:
                     consolidated = [consolidated]
                 if not isinstance(consolidated, list):
                     continue
-                consolidated = [
-                    str(f).strip()
-                    for f in consolidated
-                    if f and self._valid_fact(str(f))
-                ]
+                consolidated = [str(f).strip() for f in consolidated if f]
             except json.JSONDecodeError:
                 self._stats.inc("consolidate.json_failures")
                 logger.warning("Consolidation LLM call failed for cluster, skipping")
@@ -918,6 +949,16 @@ class MemoryEngine:
                 continue
 
             if not consolidated:
+                continue
+
+            # All-or-nothing: storing only the statements that pass the gate
+            # would destroy the rejected one's information once the originals
+            # are deleted.
+            if not all(self._valid_fact(f) for f in consolidated):
+                self._stats.inc("consolidate.rejected_cluster")
+                logger.warning(
+                    "Consolidation produced an unusable statement, skipping cluster"
+                )
                 continue
 
             # Embed the replacements BEFORE deleting the originals, so an
@@ -931,11 +972,6 @@ class MemoryEngine:
                 continue
 
             old_ids = [str(pt.id) for pt in pts]
-            await self._qdrant.delete(
-                collection_name=collection, points_selector=old_ids
-            )
-            total_removed += len(old_ids)
-
             now = time.time()
             earliest = min(
                 pt.payload.get("created_at", now) for pt in pts
@@ -954,8 +990,16 @@ class MemoryEngine:
                 )
                 for fact, vec in zip(consolidated, vectors, strict=True)
             ]
+            # Store the replacements first, then remove the originals. The new
+            # ids are fresh uuid4s so they cannot collide, and a failure between
+            # the two leaves recoverable duplicates rather than losing the
+            # cluster outright.
             await self._qdrant.upsert(collection_name=collection, points=new_pts)
             total_created += len(new_pts)
+            await self._qdrant.delete(
+                collection_name=collection, points_selector=old_ids
+            )
+            total_removed += len(old_ids)
 
         logger.info(
             "Consolidated %s: %d clusters, %d removed, %d created",

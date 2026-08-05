@@ -2184,6 +2184,9 @@
   async function deleteOne(id) {
     const card = $('mem-list').querySelector(`[data-id="${id}"]`);
     if (card) card.classList.add('deleting');
+    // Invalidate in-flight list/search responses so one fetched before this
+    // delete can't re-render the row we just removed.
+    memReqSeq++;
     try {
       await API.deleteOne(S.activeSlug, id);
       S.memories = S.memories.filter(m => m.id !== id);

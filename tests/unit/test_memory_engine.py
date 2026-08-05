@@ -218,6 +218,23 @@ class TestValidFact:
         assert MemoryEngine._valid_fact(FACT_A) is True
 
     @pytest.mark.parametrize(
+        "legit",
+        [
+            # The extraction prompt mandates this exact terse form.
+            "User never force-pushes.",
+            "User prefers tabs.",
+            # Demonstrative + noun is a real subject, not a dangling reference.
+            "This project uses Python 3.12 and targets Unraid only.",
+            "This repo is owned by Gadsden LLC, not the personal account.",
+            "These builds download Minecraft artifacts from Mojang servers.",
+            "However, Watchtower is never used on Unraid.",
+            "It is required to run docker login ghcr.io before pulling images.",
+        ],
+    )
+    def test_keeps_legitimate_facts(self, legit: str) -> None:
+        assert MemoryEngine._valid_fact(legit) is True
+
+    @pytest.mark.parametrize(
         "junk",
         [
             ", ",
@@ -226,12 +243,34 @@ class TestValidFact:
             "Qdrant",
             "12345 67890 12345 67890",  # no letters
             "This prevents config loss across container updates",
-            "It uses skopeo to push images to the local registry",
+            "That was the root cause of the outage",
             "Also the registry uses a self-signed certificate",
         ],
     )
     def test_rejects_junk(self, junk: str) -> None:
         assert MemoryEngine._valid_fact(junk) is False
+
+
+class TestDiffersMaterially:
+    @pytest.mark.parametrize(
+        ("a", "b"),
+        [
+            ("Server listens on port 8765", "Server listens on port 8766"),
+            ("Ollama works with the bundled model", "Ollama does not work with it"),
+            ("Watchtower is used for updates", "Watchtower is never used"),
+        ],
+    )
+    def test_detects_corrections(self, a: str, b: str) -> None:
+        assert MemoryEngine._differs_materially(a, b) is True
+
+    def test_ignores_pure_rewording(self) -> None:
+        assert (
+            MemoryEngine._differs_materially(
+                "User prefers Python over R for data work",
+                "User likes Python more than R for data work",
+            )
+            is False
+        )
 
 
 class TestExtractFacts:
@@ -594,6 +633,42 @@ class TestRerank:
         assert results[0].score is not None and results[0].score > 0.99
 
     @pytest.mark.asyncio
+    async def test_large_top_k_not_capped_at_25(
+        self, rerank_engine: MemoryEngine
+    ) -> None:
+        # REST/MCP allow top_k up to 100; reranking must not silently cap it.
+        with patch.object(
+            rerank_engine, "search_in_collection", new_callable=AsyncMock,
+            return_value=[],
+        ) as sic:
+            await rerank_engine.search("proj", "query", top_k=100)
+        assert sic.call_args.kwargs["top_k"] == 100
+
+    @pytest.mark.asyncio
+    async def test_score_count_mismatch_falls_back(
+        self, rerank_engine: MemoryEngine
+    ) -> None:
+        # A library returning the wrong number of scores must not 500.
+        candidates = [
+            self._record("a", "memory a", 0.60),
+            self._record("b", "memory b", 0.55),
+        ]
+        fake = MagicMock()
+        fake.rerank.return_value = [1.0]  # one score for two documents
+        with (
+            patch.object(
+                rerank_engine, "search_in_collection", new_callable=AsyncMock,
+                return_value=candidates,
+            ),
+            patch.object(
+                rerank_engine, "_get_reranker", new_callable=AsyncMock,
+                return_value=fake,
+            ),
+        ):
+            results = await rerank_engine.search("proj", "query", top_k=2)
+        assert [r.id for r in results] == ["a", "b"]
+
+    @pytest.mark.asyncio
     async def test_rerank_failure_falls_back_to_vector_order(
         self, rerank_engine: MemoryEngine
     ) -> None:
@@ -738,6 +813,40 @@ class TestConsolidate:
         result = await engine.consolidate("proj")
         assert result["memories_removed"] == 0
         mock_qdrant.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_invalid_statement_skips_whole_cluster(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        # Storing only the valid statement would destroy the rejected one's
+        # information once the originals are deleted.
+        a = _pt("id-a", "likes python", [1.0, 0.0])
+        b = _pt("id-b", "user likes python", [0.99, 0.1])
+        mock_qdrant.scroll.return_value = ([a, b], None)
+        mock_backend.generate.return_value = json.dumps(
+            ["User prefers Python for backend scripting work", "Root cause"]
+        )
+        result = await engine.consolidate("proj")
+        assert result["memories_removed"] == 0
+        mock_qdrant.delete.assert_not_called()
+        mock_qdrant.upsert.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_stores_replacements_before_deleting_originals(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        calls: list[str] = []
+        mock_qdrant.upsert.side_effect = lambda **kw: calls.append("upsert")
+        mock_qdrant.delete.side_effect = lambda **kw: calls.append("delete")
+        a = _pt("id-a", "likes python", [1.0, 0.0])
+        b = _pt("id-b", "user likes python", [0.99, 0.1])
+        mock_qdrant.scroll.return_value = ([a, b], None)
+        mock_backend.generate.return_value = json.dumps(
+            ["User prefers Python for backend scripting work"]
+        )
+        await engine.consolidate("proj")
+        # Upsert first: a failure between the two leaves duplicates, not loss.
+        assert calls == ["upsert", "delete"]
 
     @pytest.mark.asyncio
     async def test_embed_failure_skips_cluster_without_deleting(

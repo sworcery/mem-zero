@@ -30,7 +30,7 @@ jobs:
         run: |
           pip install "fastapi>=0.115" "uvicorn[standard]>=0.32" "mcp>=1.9" \
             "qdrant-client>=1.12" "httpx>=0.28" "pydantic>=2.10" "anyio>=4.0" \
-            "pytest>=8.0" "pytest-asyncio>=0.23" ruff
+            "numpy>=1.24" "pytest>=8.0" "pytest-asyncio>=0.23" ruff
 
       - name: Run tests
         run: PYTHONPATH=src python -m pytest -q
