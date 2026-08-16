@@ -107,7 +107,7 @@ The project slug must start with a letter or number, followed by lowercase alpha
 </details>
 
 <details>
-<summary><b>Other coding agents — Codex, Copilot, Goose, opencode, Qwen Code, Grok Build</b></summary>
+<summary><b>Other coding agents — Codex, Copilot, Goose, opencode, OpenClaude, Qwen Code, Grok Build</b></summary>
 
 mem-zero exposes a standard streamable-HTTP MCP endpoint with Bearer auth, so any
 MCP-capable agent connects without server-side changes. Everything below points at
@@ -186,6 +186,22 @@ extensions:
       Authorization: "Bearer ${MEM_ZERO_API_KEY}"
     timeout: 300
 ```
+
+### OpenClaude
+
+Not to be confused with opencode above — OpenClaude is a Claude Code-compatible CLI
+that runs against any provider, including a local Ollama. Its config is Claude
+Code's, so `--scope project` writes the same `.mcp.json`:
+
+```bash
+openclaude mcp add --transport http mem-zero \
+  "http://your-host:8765/mcp/your-project-slug/http/your-user-id" \
+  --header "Authorization: Bearer ${MEM_ZERO_API_KEY}" \
+  --scope project
+```
+
+This pairs well with mem-zero if you want the whole stack local: OpenClaude driving
+an Ollama model, with mem-zero's Ollama backend doing extraction and embeddings.
 
 ### Qwen Code
 
