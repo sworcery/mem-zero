@@ -37,7 +37,7 @@ That's it. The bundled LLM handles fact extraction and embeddings out of the box
 ## Connecting your tools
 
 <details>
-<summary><b>Claude Code, the CLI, other MCP clients, and the REST API</b></summary>
+<summary><b>Claude Code, the CLI, and the REST API</b></summary>
 
 ### Claude Code (MCP)
 
@@ -86,39 +86,6 @@ mem-zero-cli stats --project my-project
 
 All commands support `--json` for machine-readable output. Run `mem-zero-cli --help` for full usage.
 
-### Grok Build (xAI CLI)
-
-Grok Build speaks the same MCP protocol and reads the same `CLAUDE.md` instruction
-files as Claude Code, so mem-zero works without server-side changes:
-
-```bash
-grok mcp add --transport http mem-zero \
-  "http://your-host:8765/mcp/your-project-slug/http/your-user-id" \
-  --header "Authorization: Bearer ${MEM_ZERO_API_KEY}"
-```
-
-Or in `~/.grok/config.toml`:
-
-```toml
-[mcp_servers.mem-zero]
-transport = "http"
-url = "http://your-host:8765/mcp/your-project-slug/http/your-user-id"
-headers = { "Authorization" = "Bearer ${MEM_ZERO_API_KEY}" }
-```
-
-If your `CLAUDE.md` already tells the assistant when to store and search memories,
-Grok Build picks those instructions up natively — no changes needed.
-
-### Any MCP client (Claude Desktop, Cursor, Windsurf, etc.)
-
-Editors running Grok models (`grok-code-fast-1` in Cursor, Cline, opencode,
-GitHub Copilot, ...) connect through the editor's own MCP support. Add the MCP
-server URL to your client's configuration:
-
-```
-http://your-host:8765/mcp/your-project-slug/http/your-user-id
-```
-
 ### REST API (any tool)
 
 Anything that can make HTTP requests can use mem-zero directly:
@@ -136,6 +103,179 @@ curl -X POST http://your-host:8765/api/v1/projects/my-project/search \
 ```
 
 The project slug must start with a letter or number, followed by lowercase alphanumeric characters, hyphens, or underscores (1-63 chars). Each unique slug creates an isolated collection.
+
+</details>
+
+<details>
+<summary><b>Other coding agents — Codex, Copilot, Goose, opencode, Qwen Code, Grok Build</b></summary>
+
+mem-zero exposes a standard streamable-HTTP MCP endpoint with Bearer auth, so any
+MCP-capable agent connects without server-side changes. Everything below points at
+the same URL:
+
+```
+http://your-host:8765/mcp/your-project-slug/http/your-user-id
+```
+
+Export your key first so it stays out of the config files:
+
+```bash
+export MEM_ZERO_API_KEY="your-key"
+```
+
+### OpenAI Codex CLI
+
+`~/.codex/config.toml` (or `.codex/config.toml` for a single repo). A `url` key
+implies streamable HTTP — there is no transport field to set:
+
+```toml
+[mcp_servers.mem-zero]
+url = "http://your-host:8765/mcp/your-project-slug/http/your-user-id"
+bearer_token_env_var = "MEM_ZERO_API_KEY"
+```
+
+### GitHub Copilot (VS Code, Visual Studio, JetBrains, Xcode)
+
+`.vscode/mcp.json` — prompts once for the key, then stores it:
+
+```json
+{
+  "inputs": [
+    { "type": "promptString", "id": "mem-zero-key", "description": "mem-zero API key", "password": true }
+  ],
+  "servers": {
+    "mem-zero": {
+      "type": "http",
+      "url": "http://your-host:8765/mcp/your-project-slug/http/your-user-id",
+      "headers": { "Authorization": "Bearer ${input:mem-zero-key}" }
+    }
+  }
+}
+```
+
+### opencode
+
+`opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "mem-zero": {
+      "type": "remote",
+      "url": "http://your-host:8765/mcp/your-project-slug/http/your-user-id",
+      "enabled": true,
+      "headers": { "Authorization": "Bearer {env:MEM_ZERO_API_KEY}" }
+    }
+  }
+}
+```
+
+### Goose
+
+`~/.config/goose/config.yaml` — headers support `${VAR}` substitution:
+
+```yaml
+extensions:
+  mem-zero:
+    enabled: true
+    type: streamable_http
+    name: mem-zero
+    uri: http://your-host:8765/mcp/your-project-slug/http/your-user-id
+    headers:
+      Authorization: "Bearer ${MEM_ZERO_API_KEY}"
+    timeout: 300
+```
+
+### Qwen Code
+
+`settings.json` — note it uses `httpUrl` (not `url`) for streamable HTTP:
+
+```json
+{
+  "mcpServers": {
+    "mem-zero": {
+      "httpUrl": "http://your-host:8765/mcp/your-project-slug/http/your-user-id",
+      "headers": { "Authorization": "Bearer ${MEM_ZERO_API_KEY}" },
+      "timeout": 300000
+    }
+  }
+}
+```
+
+### Grok Build (xAI)
+
+```bash
+grok mcp add --transport http mem-zero \
+  "http://your-host:8765/mcp/your-project-slug/http/your-user-id" \
+  --header "Authorization: Bearer ${MEM_ZERO_API_KEY}"
+```
+
+Or in `~/.grok/config.toml`:
+
+```toml
+[mcp_servers.mem-zero]
+transport = "http"
+url = "http://your-host:8765/mcp/your-project-slug/http/your-user-id"
+headers = { "Authorization" = "Bearer ${MEM_ZERO_API_KEY}" }
+```
+
+### Editors with their own MCP support
+
+Cursor, Windsurf, Cline, Zed, and JetBrains Junie each have an MCP settings panel —
+add the same URL and `Authorization: Bearer` header. This is also how you use
+mem-zero alongside a non-Anthropic model such as `grok-code-fast-1`: the editor
+handles MCP, the model just sees the tools.
+
+Agents without MCP support (Aider, for example) can still use the REST API or the
+`mem-zero-cli` shown above.
+
+</details>
+
+## Teaching your agent to use memory
+
+Connecting the server only makes the tools *available*. Agents won't store or
+search memories on their own — they need instructions. Put these in the file your
+agent reads at the repo root: **`AGENTS.md`** works for Codex, Copilot, Cursor,
+Windsurf, Amp, Zed, Junie, Aider, Devin, and Claude Code; Claude Code and Grok
+Build also read `CLAUDE.md`, and Gemini CLI uses `GEMINI.md`.
+
+<details>
+<summary><b>Copy-paste block for AGENTS.md</b></summary>
+
+```markdown
+## Project memory (mem-zero)
+
+This project has a persistent memory server available over MCP.
+
+**Search first.** At the start of every session, search memory for prior context
+on whatever you're about to work on. Do this before reading code — it will tell
+you about decisions and dead ends the code doesn't explain.
+
+**Store at checkpoints**, not continuously: after completing a feature, fixing a
+bug, or making a decision worth remembering.
+
+Store:
+- Decisions and the reasoning behind them, especially when alternatives were
+  rejected ("chose X over Y because Z")
+- Non-obvious workarounds and gotchas — things that would surprise a future reader
+- Dead ends from debugging, so the next session doesn't repeat the investigation
+- Conventions and preferences that aren't written down anywhere else
+
+Do NOT store:
+- Anything `git log`, `grep`, or the code itself already answers — function
+  signatures, file structure, what a method does
+- Per-file change lists, version bumps, or test results
+- Fragments that can't stand alone ("Root cause", "Solution")
+
+**Quality bar:** each memory is one complete, self-contained sentence that a
+future session can understand with no other context. Name systems and tools
+explicitly rather than saying "this" or "it". One memory per decision, not one
+per file touched.
+
+`delete_memories` and `delete_all_memories` are destructive — always ask before
+calling them.
+```
 
 </details>
 
