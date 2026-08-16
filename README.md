@@ -86,9 +86,34 @@ mem-zero-cli stats --project my-project
 
 All commands support `--json` for machine-readable output. Run `mem-zero-cli --help` for full usage.
 
+### Grok Build (xAI CLI)
+
+Grok Build speaks the same MCP protocol and reads the same `CLAUDE.md` instruction
+files as Claude Code, so mem-zero works without server-side changes:
+
+```bash
+grok mcp add --transport http mem-zero \
+  "http://your-host:8765/mcp/your-project-slug/http/your-user-id" \
+  --header "Authorization: Bearer ${MEM_ZERO_API_KEY}"
+```
+
+Or in `~/.grok/config.toml`:
+
+```toml
+[mcp_servers.mem-zero]
+transport = "http"
+url = "http://your-host:8765/mcp/your-project-slug/http/your-user-id"
+headers = { "Authorization" = "Bearer ${MEM_ZERO_API_KEY}" }
+```
+
+If your `CLAUDE.md` already tells the assistant when to store and search memories,
+Grok Build picks those instructions up natively — no changes needed.
+
 ### Any MCP client (Claude Desktop, Cursor, Windsurf, etc.)
 
-Add the MCP server URL to your client's configuration:
+Editors running Grok models (`grok-code-fast-1` in Cursor, Cline, opencode,
+GitHub Copilot, ...) connect through the editor's own MCP support. Add the MCP
+server URL to your client's configuration:
 
 ```
 http://your-host:8765/mcp/your-project-slug/http/your-user-id

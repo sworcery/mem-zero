@@ -112,6 +112,65 @@ def _call_tool(client: TestClient, path: str, name: str, arguments: dict):
     )
 
 
+class TestMcpClientLifecycle:
+    """Pins the full handshake real clients perform (Claude Code, Grok Build,
+    Cursor): initialize -> notifications/initialized -> tools/list ->
+    tools/call. The bare-tools/call tests below don't exercise this, and an
+    mcp-library upgrade could break the handshake while they stay green."""
+
+    def test_full_client_handshake(
+        self, client: TestClient, mock_engine: AsyncMock
+    ) -> None:
+        path = "/mcp/my-project/http/john"
+        # 1. initialize
+        resp = client.post(
+            path,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "grok-build", "version": "1.0"},
+                },
+            },
+            headers=_HEADERS,
+        )
+        assert resp.status_code == 200
+        init = resp.json()["result"]
+        assert init["serverInfo"]["name"] == "mem-zero"
+        assert "tools" in init["capabilities"]
+
+        # 2. notifications/initialized — a notification, accepted with 202
+        resp = client.post(
+            path,
+            json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            headers=_HEADERS,
+        )
+        assert resp.status_code == 202
+
+        # 3. tools/list — all five tools advertised
+        resp = client.post(
+            path,
+            json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+            headers=_HEADERS,
+        )
+        names = {t["name"] for t in resp.json()["result"]["tools"]}
+        assert names == {
+            "add_memories",
+            "search_memory",
+            "list_memories",
+            "delete_memories",
+            "delete_all_memories",
+        }
+
+        # 4. tools/call still works after the handshake
+        resp = _call_tool(client, path, "add_memories", {"text": "hello"})
+        assert resp.json()["result"].get("isError") is not True
+        mock_engine.add.assert_awaited_once_with("my-project", "john", ["hello"])
+
+
 class TestMcpBridge:
     def test_add_memories_roundtrip(
         self, client: TestClient, mock_engine: AsyncMock
