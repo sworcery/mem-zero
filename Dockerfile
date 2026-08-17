@@ -1,5 +1,34 @@
+# syntax=docker/dockerfile:1
 FROM qdrant/qdrant:v1.17.1 AS qdrant-bin
 
+############################ builder ############################
+# Compiles llama-cpp-python (needs build-essential + cmake) into a venv. None
+# of the toolchain reaches the runtime image.
+FROM ubuntu:24.04 AS builder
+ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates python3 python3-pip python3-venv build-essential cmake \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+WORKDIR /build
+
+# Deps layer: pinned by requirements.txt (see `make lock`), so this expensive
+# layer — the llama-cpp compile lives here — is only invalidated when the lock
+# changes, never by a source edit.
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# App wheel: cheap, rebuilt on source changes. Build isolation fetches
+# hatchling itself.
+COPY pyproject.toml .
+COPY src/ src/
+RUN pip wheel --no-deps -w /wheels .
+
+############################ runtime ############################
+# MUST stay on the same base tag as the builder: the venv's interpreter path
+# and ABI have to match. Dependabot bumps both FROM lines together — check.
 FROM ubuntu:24.04
 ARG S6_OVERLAY_VERSION=3.2.0.0
 ARG TARGETARCH
@@ -13,15 +42,15 @@ ENV PYTHONUNBUFFERED=1
 ENV LANG=C.UTF-8
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+# No compiler here. libgomp1 is the OpenMP runtime the compiled llama.cpp libs
+# link against (it used to arrive transitively via gcc); libunwind8 is for
+# qdrant. curl serves the healthcheck and model download.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     xz-utils \
     python3 \
-    python3-pip \
-    python3-venv \
-    build-essential \
-    cmake \
+    libgomp1 \
     libunwind8 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -44,24 +73,17 @@ RUN set -e && \
     tar -C / -Jxpf "/tmp/s6-overlay-${S6_ARCH}.tar.xz" && \
     rm /tmp/s6-overlay-*.tar.xz
 
-RUN python3 -m venv /opt/venv
+# Deps venv (large layer, stable across source changes) then the app wheel
+# (small layer), preserving the "source change doesn't re-download deps" property.
+COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+COPY --from=builder /wheels /tmp/wheels
+RUN pip install --no-deps --no-index /tmp/wheels/*.whl && rm -rf /tmp/wheels
+# Fail the BUILD, not the first boot, if a native runtime library is missing.
+# The traceback names the missing .so if libgomp1 was not the only one.
+RUN python3 -c "import llama_cpp, fastembed, uvicorn, qdrant_client, mem_zero; print('runtime import ok')"
 
 WORKDIR /app
-
-# Install Python dependencies (cached unless pyproject.toml changes)
-COPY pyproject.toml .
-RUN python3 -c "\
-import tomllib, pathlib; \
-d = tomllib.loads(pathlib.Path('pyproject.toml').read_text()); \
-deps = d['project']['dependencies'] + d['build-system']['requires']; \
-print('\n'.join(deps))" > /tmp/deps.txt && \
-    pip install -r /tmp/deps.txt && rm /tmp/deps.txt
-
-# Install the package (re-runs on source changes but skips dep download)
-COPY src/ src/
-RUN pip install --no-deps --no-build-isolation .
-
 COPY rootfs/ /
 RUN find /etc/cont-init.d -type f -exec chmod +x {} \; && \
     find /etc/services.d -type f -name "run" -exec chmod +x {} \;
@@ -77,7 +99,9 @@ ENV QDRANT__SERVICE__HOST=127.0.0.1
 ENV QDRANT_ALLOW_RECOVERY_MODE=true
 ENV QDRANT_HOST=127.0.0.1
 ENV QDRANT_PORT=6333
-ENV EMBEDDER_DIMENSIONS=768
+# EMBEDDER_DIMENSIONS is deliberately NOT set here: unset means the app picks
+# the right default per backend (768 for Ollama/bundled, the model's native
+# size for OpenAI). A baked-in 768 would be forced onto OpenAI and break it.
 ENV HOST=0.0.0.0
 ENV PORT=8765
 

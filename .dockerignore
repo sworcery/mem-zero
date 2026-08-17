@@ -11,3 +11,6 @@ tests
 docs
 *.md
 !README.md
+banner.png
+icon.png
+Makefile
