@@ -156,6 +156,11 @@ DEDUP_AUTO_SKIP_SCORE = 0.95
 DEDUP_RELEVANT_SCORE = 0.60
 
 
+# Qdrant client default is httpx's 5 s, too tight for maintenance scrolls that
+# pull hundreds of vectors or 100-point upsert batches.
+_QDRANT_TIMEOUT_S = 60
+
+
 class EmbeddingError(Exception):
     pass
 
@@ -165,11 +170,16 @@ class LLMError(Exception):
 
 
 def validate_memory_id(value: str) -> str:
+    # uuid.UUID(v, version=4) would OVERWRITE the version bits rather than
+    # check them, accepting nil/v1/urn:/braced/unhyphenated forms. Parse
+    # without a version, then require a genuine canonical v4.
     try:
-        uuid.UUID(value, version=4)
-    except ValueError:
+        parsed = uuid.UUID(value)
+    except (ValueError, AttributeError, TypeError):
         raise ValueError(f"Invalid memory ID: {value!r}") from None
-    return value
+    if parsed.version != 4 or str(parsed) != value.lower():
+        raise ValueError(f"Invalid memory ID: {value!r}")
+    return str(parsed)
 
 
 class MemoryEngine:
@@ -187,11 +197,13 @@ class MemoryEngine:
             self._qdrant = AsyncQdrantClient(
                 url=config.qdrant_url,
                 api_key=config.qdrant_api_key,
+                timeout=_QDRANT_TIMEOUT_S,
             )
         else:
             self._qdrant = AsyncQdrantClient(
                 host=config.qdrant_host,
                 port=config.qdrant_port,
+                timeout=_QDRANT_TIMEOUT_S,
             )
 
         self._ensured_collections: set[str] = set()
@@ -370,7 +382,6 @@ class MemoryEngine:
         self,
         collection: str,
         fact: str,
-        user_id: str,
         fact_vector: list[float] | None = None,
     ) -> tuple[str, str | None, str | None]:
         if self._backend.is_degraded:
@@ -379,8 +390,10 @@ class MemoryEngine:
             return "add", None, None
 
         self._stats.inc("dedup")
+        # No user_id filter: user_id is a tag, not an isolation boundary, so
+        # dedup must see the same population that search and consolidate see.
         results = await self.search_in_collection(
-            collection, fact, top_k=5, user_id=user_id, query_vector=fact_vector
+            collection, fact, top_k=5, query_vector=fact_vector
         )
         # Deterministic gates around the LLM call: near-identical rewordings
         # skip without a call (the LLM labels them "update" 6/6 times and
@@ -425,11 +438,21 @@ class MemoryEngine:
             return "add", None, None
         action = result.get("action", "add")
         update_id = result.get("id")
+        # Only Ollama forwards the enum schema; OpenAI/bundled can return any
+        # string, which would otherwise become an unbounded persisted counter key.
+        if action not in ("add", "update", "skip"):
+            self._stats.inc("dedup.unknown_action")
+            action = "add"
         # An "update" with no id would otherwise fall through both branches in
         # add() and silently drop the fact; an "update" with no merged text
         # would replace the existing memory's content with the bare new fact,
         # destroying the old information. Both degrade to a plain add.
         if action == "update" and not (update_id and result.get("text")):
+            action = "add"
+        # The id must be one of the candidates the model was shown; a
+        # well-formed but hallucinated id would be upserted as an orphan point.
+        if action == "update" and update_id not in {r.id for r in results}:
+            self._stats.inc("dedup.update_unknown_id")
             action = "add"
         self._stats.inc(f"dedup.{action}")
         if action == "update":
@@ -515,7 +538,7 @@ class MemoryEngine:
 
         for fact, fact_vector in zip(all_facts, fact_vectors, strict=True):
             action, update_id, merged_text = await self._dedup_fact(
-                collection, fact, user_id, fact_vector=fact_vector
+                collection, fact, fact_vector=fact_vector
             )
 
             if action == "skip":
@@ -531,7 +554,10 @@ class MemoryEngine:
                 else:
                     vector = (await self._timed_embed([text_to_store]))[0]
                 try:
-                    validate_memory_id(update_id)
+                    update_id = validate_memory_id(update_id)
+                except ValueError:
+                    action = "add"
+                if action == "update":
                     # Preserve the original creation time — an update merges into
                     # an existing memory, it does not create a new one.
                     existing = await self._qdrant.retrieve(
@@ -546,6 +572,7 @@ class MemoryEngine:
                     )
                     await self._qdrant.upsert(
                         collection_name=collection,
+                        wait=True,
                         points=[
                             PointStruct(
                                 id=update_id,
@@ -563,14 +590,16 @@ class MemoryEngine:
                     )
                     ids.append(update_id)
                     logger.info("Updated memory %s in %s", update_id, collection)
-                except ValueError:
-                    action = "add"
 
             if action == "add":
                 point_id = str(uuid.uuid4())
                 ids.append(point_id)
+                # wait=True is load-bearing everywhere we upsert: the NEXT fact's
+                # dedup search must see this point, or in-batch duplicates are
+                # both stored. An explicit wait=False "optimization" breaks that.
                 await self._qdrant.upsert(
                     collection_name=collection,
+                    wait=True,
                     points=[
                         PointStruct(
                             id=point_id,
@@ -692,14 +721,27 @@ class MemoryEngine:
             for pt in points
         ]
 
+    async def count_memories(self, project_slug: str) -> int:
+        collection = await self._ensure_collection(project_slug)
+        info = await self._qdrant.get_collection(collection)
+        return info.points_count or 0
+
     async def delete(self, project_slug: str, memory_id: str) -> bool:
-        validate_memory_id(memory_id)
+        memory_id = validate_memory_id(memory_id)
         self._stats.inc("delete")
         self._stats.inc_project(project_slug, "delete")
         # Without an activity timestamp a delete-only slug would never age out
         # under the stale-project pruning in stats.flush().
         self._stats.record_activity(project_slug)
         collection = await self._ensure_collection(project_slug)
+        # Qdrant's delete is a silent no-op for a missing id and its result
+        # carries no per-id hit info, so check existence first so callers get a
+        # truthful answer instead of a fabricated success.
+        existing = await self._qdrant.retrieve(
+            collection_name=collection, ids=[memory_id], with_payload=False
+        )
+        if not existing:
+            return False
         await self._qdrant.delete(
             collection_name=collection,
             points_selector=[memory_id],
@@ -711,8 +753,7 @@ class MemoryEngine:
         self._stats.inc_project(project_slug, "delete_all")
         self._stats.record_activity(project_slug)
         collection = await self._ensure_collection(project_slug)
-        info = await self._qdrant.get_collection(collection)
-        count = info.points_count or 0
+        count = await self.count_memories(project_slug)
         await self._qdrant.delete_collection(collection)
         self._ensured_collections.discard(collection)
         await self._ensure_collection(project_slug)
@@ -771,7 +812,7 @@ class MemoryEngine:
 
         for i in range(0, len(new_points), 100):
             await self._qdrant.upsert(
-                collection_name=collection, points=new_points[i : i + 100]
+                collection_name=collection, wait=True, points=new_points[i : i + 100]
             )
 
         logger.info("Re-embedded %d points in %s", len(new_points), collection)
@@ -821,6 +862,7 @@ class MemoryEngine:
                     vectors = await self._timed_embed([facts[0]])
                     await self._qdrant.upsert(
                         collection_name=collection,
+                        wait=True,
                         points=[PointStruct(id=pt.id, vector=vectors[0], payload=payload)],
                     )
                     cleaned += 1
@@ -836,6 +878,7 @@ class MemoryEngine:
                         point_id = str(uuid.uuid4())
                         await self._qdrant.upsert(
                             collection_name=collection,
+                            wait=True,
                             points=[PointStruct(
                                 id=point_id, vector=vectors[0], payload=new_payload,
                             )],
@@ -994,7 +1037,7 @@ class MemoryEngine:
             # ids are fresh uuid4s so they cannot collide, and a failure between
             # the two leaves recoverable duplicates rather than losing the
             # cluster outright.
-            await self._qdrant.upsert(collection_name=collection, points=new_pts)
+            await self._qdrant.upsert(collection_name=collection, wait=True, points=new_pts)
             total_created += len(new_pts)
             await self._qdrant.delete(
                 collection_name=collection, points_selector=old_ids

@@ -79,6 +79,26 @@ class TestValidateMemoryId:
         with pytest.raises(ValueError, match="Invalid memory ID"):
             validate_memory_id("not-a-uuid")
 
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "00000000-0000-0000-0000-000000000000",  # nil
+            "6ba7b810-9dad-11d1-80b4-00c04fd430c8",  # v1
+            "urn:uuid:550e8400-e29b-41d4-a716-446655440000",
+            "{550e8400-e29b-41d4-a716-446655440000}",
+            "550e8400e29b41d4a716446655440000",  # unhyphenated
+        ],
+    )
+    def test_rejects_non_canonical_or_non_v4(self, bad: str) -> None:
+        # uuid.UUID(v, version=4) silently OVERWRITES version bits; a real
+        # check must reject every one of these.
+        with pytest.raises(ValueError, match="Invalid memory ID"):
+            validate_memory_id(bad)
+
+    def test_returns_canonical_lowercase(self) -> None:
+        upper = "550E8400-E29B-41D4-A716-446655440000"
+        assert validate_memory_id(upper) == upper.lower()
+
 
 class TestCollectionNaming:
     @pytest.mark.asyncio
@@ -364,7 +384,7 @@ class TestDedupDegraded:
         self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
     ) -> None:
         mock_backend.is_degraded = True
-        action, _, _ = await engine._dedup_fact("test_proj", "new fact", "john")
+        action, _, _ = await engine._dedup_fact("test_proj", "new fact")
         assert action == "add"
         mock_backend.generate.assert_not_called()
 
@@ -374,7 +394,7 @@ class TestDedupDegraded:
     ) -> None:
         mock_backend.is_degraded = False
         mock_qdrant.query_points.return_value = MagicMock(points=[])
-        action, _, _ = await engine._dedup_fact("test_proj", "new fact", "john")
+        action, _, _ = await engine._dedup_fact("test_proj", "new fact")
         assert action == "add"
 
 
@@ -404,7 +424,7 @@ class TestDedupScoreGates:
             return_value=near_identical,
         ):
             action, _, _ = await engine._dedup_fact(
-                "test_proj", "User likes Python more than R for data work", "john"
+                "test_proj", "User likes Python more than R for data work", 
             )
         assert action == "skip"
         mock_backend.generate.assert_not_called()
@@ -428,7 +448,7 @@ class TestDedupScoreGates:
             return_value=noise,
         ):
             action, _, _ = await engine._dedup_fact(
-                "test_proj", "A brand new fact about the deploy pipeline", "john"
+                "test_proj", "A brand new fact about the deploy pipeline", 
             )
         assert action == "add"
         mock_backend.generate.assert_not_called()
@@ -453,7 +473,7 @@ class TestDedupScoreGates:
             return_value=candidate,
         ):
             action, _, _ = await engine._dedup_fact(
-                "test_proj", "Qwen 14b is now used for extraction", "john"
+                "test_proj", "Qwen 14b is now used for extraction", 
             )
         assert action == "skip"
         mock_backend.generate.assert_called_once()
@@ -482,7 +502,7 @@ class TestDedupScoreGates:
             return_value=candidate,
         ):
             action, update_id, _ = await engine._dedup_fact(
-                "test_proj", "new fact about the deploy pipeline", "john"
+                "test_proj", "new fact about the deploy pipeline", 
             )
         assert action == "add"
         assert update_id is None
@@ -520,7 +540,7 @@ class TestDedupMalformedResponses:
             return_value=existing,
         ):
             action, update_id, _ = await engine._dedup_fact(
-                "test_proj", "new fact", "john"
+                "test_proj", "new fact", 
             )
         assert action == "add"
         assert update_id is None
@@ -538,7 +558,7 @@ class TestDedupMalformedResponses:
             return_value=existing,
         ):
             action, update_id, _ = await engine._dedup_fact(
-                "test_proj", "new fact", "john"
+                "test_proj", "new fact", 
             )
         assert action == "add"
         assert update_id is None
@@ -559,7 +579,7 @@ class TestDedupMalformedResponses:
             return_value=existing,
         ):
             action, update_id, text = await engine._dedup_fact(
-                "test_proj", "new fact", "john"
+                "test_proj", "new fact", 
             )
         assert action == "update"
         assert update_id == "550e8400-e29b-41d4-a716-446655440000"
@@ -986,3 +1006,133 @@ class TestReembedPaging:
         assert count == 3
         assert mock_qdrant.scroll.call_count == 2
         mock_qdrant.delete_collection.assert_not_called()
+
+
+class TestDedupHardening:
+    @pytest.fixture
+    def candidate(self) -> list[MemoryRecord]:
+        return [
+            MemoryRecord(
+                id="550e8400-e29b-41d4-a716-446655440000",
+                text="existing memory about the deploy pipeline",
+                user_id="john",
+                created_at=0.0,
+                updated_at=0.0,
+                score=0.80,
+            )
+        ]
+
+    @pytest.mark.asyncio
+    async def test_unknown_action_counts_and_adds(
+        self, config: Config, mock_backend: AsyncMock, mock_qdrant: AsyncMock,
+        tmp_path: Path, candidate: list[MemoryRecord],
+    ) -> None:
+        # OpenAI/bundled ignore the enum schema, so raw model output must be
+        # whitelisted — otherwise it becomes an unbounded persisted counter key.
+        stats = DiagnosticStats(str(tmp_path / "s.json"))
+        engine = MemoryEngine(config, mock_backend, stats=stats)
+        engine._qdrant = mock_qdrant
+        mock_backend.generate.return_value = '{"action": "merge"}'
+        with patch.object(
+            engine, "search_in_collection", new_callable=AsyncMock,
+            return_value=candidate,
+        ):
+            action, _, _ = await engine._dedup_fact("test_proj", "a new fact")
+        assert action == "add"
+        assert stats._counters.get("dedup.unknown_action") == 1
+        assert "dedup.merge" not in stats._counters
+
+    @pytest.mark.asyncio
+    async def test_update_with_id_not_in_candidates_becomes_add(
+        self, config: Config, mock_backend: AsyncMock, mock_qdrant: AsyncMock,
+        tmp_path: Path, candidate: list[MemoryRecord],
+    ) -> None:
+        # A well-formed but hallucinated id would otherwise be upserted as a
+        # brand-new orphan point and counted as a successful update.
+        stats = DiagnosticStats(str(tmp_path / "s.json"))
+        engine = MemoryEngine(config, mock_backend, stats=stats)
+        engine._qdrant = mock_qdrant
+        mock_backend.generate.return_value = (
+            '{"action": "update", "id": "11111111-2222-4333-8444-555555555555",'
+            ' "text": "merged"}'
+        )
+        with patch.object(
+            engine, "search_in_collection", new_callable=AsyncMock,
+            return_value=candidate,
+        ):
+            action, update_id, _ = await engine._dedup_fact("test_proj", "a new fact")
+        assert action == "add"
+        assert update_id is None
+        assert stats._counters.get("dedup.update_unknown_id") == 1
+
+    @pytest.mark.asyncio
+    async def test_dedup_search_has_no_user_filter(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        # user_id is a tag, not an isolation boundary: dedup must see the same
+        # population that search and consolidate see.
+        mock_qdrant.query_points.return_value = MagicMock(points=[])
+        await engine._dedup_fact("test_proj", "new fact", fact_vector=[0.1] * 768)
+        assert mock_qdrant.query_points.call_args.kwargs["query_filter"] is None
+
+
+class TestUpsertWaits:
+    @pytest.mark.asyncio
+    async def test_add_upserts_with_wait_true(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        # In-batch dedup searches the collection right after each upsert; an
+        # explicit wait=False "optimization" would silently break that.
+        with (
+            patch.object(engine, "_extract_facts", new_callable=AsyncMock,
+                         return_value=["a fact"]),
+            patch.object(engine, "_dedup_fact", new_callable=AsyncMock,
+                         return_value=("add", None, None)),
+        ):
+            await engine.add("project-a", "john", ["some text"])
+        assert mock_qdrant.upsert.call_args.kwargs["wait"] is True
+
+
+class TestDeleteHonesty:
+    @pytest.mark.asyncio
+    async def test_delete_missing_returns_false(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        mock_qdrant.retrieve.return_value = []
+        ok = await engine.delete("proj", "550e8400-e29b-41d4-a716-446655440000")
+        assert ok is False
+        mock_qdrant.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_existing_returns_true(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        mock_qdrant.retrieve.return_value = [MagicMock()]
+        ok = await engine.delete("proj", "550e8400-e29b-41d4-a716-446655440000")
+        assert ok is True
+        mock_qdrant.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_count_memories(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        mock_qdrant.get_collection.return_value = MagicMock(points_count=7)
+        assert await engine.count_memories("proj") == 7
+
+
+class TestAddExercisesRealDedup:
+    @pytest.mark.asyncio
+    async def test_add_calls_dedup_with_correct_signature(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        # Deliberately does NOT patch _dedup_fact: the other add() tests do, so
+        # a caller/signature mismatch (positional user_id landing in fact_vector)
+        # was invisible to them and only mypy caught it. This pins it in pytest.
+        mock_backend.generate.return_value = json.dumps({"facts": [FACT_A]})
+        mock_qdrant.query_points.return_value = MagicMock(points=[])
+        ids = await engine.add("project-a", "john", ["some text"])
+        assert len(ids) == 1
+        # Dedup ran (an empty candidate set -> add) and the stored vector is a
+        # real embedding, not a stray string.
+        point = mock_qdrant.upsert.call_args.kwargs["points"][0]
+        assert isinstance(point.vector, list) and len(point.vector) == 768
