@@ -366,6 +366,8 @@ Enable `DIAGNOSTICS_ENABLED=true` to see performance metrics, accuracy stats, sc
 
 Optionally protect it with basic auth via `DASHBOARD_USER` and `DASHBOARD_PASS`.
 
+If `API_KEY` is set but no dashboard credentials are, the dashboard prompts once for the API key when it first gets a 401 and keeps it in `sessionStorage` for that browser tab. It is never written to `localStorage`, the URL, or the page source.
+
 </details>
 
 ## Authentication
@@ -400,6 +402,8 @@ If `API_KEY` is not set, all endpoints are open — suitable for trusted network
 
 The dashboard has its own basic auth (`DASHBOARD_USER`/`DASHBOARD_PASS`) since browsers need a login prompt rather than Bearer tokens.
 
+If you set dashboard credentials **without** an `API_KEY`, those same Basic-auth credentials now also protect `/api`, `/mcp`, and `/debug`. Previously they were left open behind a password-protected dashboard. With both set, the dashboard accepts either: a logged-in browser session or a Bearer token.
+
 </details>
 
 ## MCP tools
@@ -409,11 +413,11 @@ The dashboard has its own basic auth (`DASHBOARD_USER`/`DASHBOARD_PASS`) since b
 
 | Tool | Description |
 |------|-------------|
-| `add_memories(text)` | Extract and store facts from text |
-| `search_memory(query, top_k)` | Semantic search within the project |
-| `list_memories()` | List all memories for the project |
+| `add_memories(text)` | Extract and store facts from text (up to 50,000 chars) |
+| `search_memory(query, top_k)` | Semantic search within the project; `query` is capped at 2,000 chars, `top_k` at 100 |
+| `list_memories(limit)` | Returns `{"memories": [...], "total": N, "truncated": bool}` (default limit 100, max 1000) |
 | `delete_memories(memory_ids)` | Delete specific memories by ID |
-| `delete_all_memories()` | Delete all memories for the project |
+| `delete_all_memories(confirm)` | Two-step: without `confirm=true` it returns the count and asks for confirmation; nothing is deleted |
 
 </details>
 
@@ -469,7 +473,7 @@ For Claude Code, add instructions to your `CLAUDE.md` telling the assistant to u
 ```
 GET    /health                                  — health check
 GET    /api/v1/projects                         — list all projects
-GET    /api/v1/projects/{slug}/memories          — list memories
+GET    /api/v1/projects/{slug}/memories          — list memories (?limit=&offset=; X-Next-Offset header carries the cursor for the next page)
 POST   /api/v1/projects/{slug}/memories          — add memory {"text": "..."}
 POST   /api/v1/projects/{slug}/search            — search {"query": "...", "top_k": 10}
 DELETE /api/v1/projects/{slug}/memories/{id}      — delete one
@@ -479,7 +483,13 @@ POST   /api/v1/projects/{slug}/reembed            — regenerate embeddings for 
 POST   /api/v1/projects/{slug}/cleanup            — fix garbled text and split multi-fact entries
 POST   /api/v1/projects/{slug}/consolidate        — merge similar fragments into clean summaries
 GET    /api/v1/diagnostics                        — performance and accuracy metrics
+GET    /api/v1/projects/{slug}/diagnostics        — per-project metrics
+POST   /api/v1/diagnostics/reset                  — clear collected metrics
+POST   /api/v1/diagnostics/export                 — full metrics snapshot as JSON
+GET    /debug/config                              — active backend/config summary (never the API key)
 ```
+
+The diagnostics endpoints and `/debug/config` return 404 unless `DIAGNOSTICS_ENABLED=true`.
 
 </details>
 
@@ -496,7 +506,8 @@ All settings are via environment variables.
 |----------|---------|---------|
 | `API_KEY` | — | API key for MCP and REST endpoints (disabled if empty) |
 | `LLM_BACKEND` | auto-detect | `bundled`, `ollama`, or `openai` |
-| `EMBEDDER_DIMENSIONS` | `768` | Vector dimensions |
+| `EMBEDDER_DIMENSIONS` | per backend | Optional. Unset means the backend default: 768 for Ollama and bundled, the model's native size for OpenAI (1536 for `text-embedding-3-small`). Set only to override |
+| `EXTRACT_MAX_CHARS` | `24000` | Inputs longer than this are still processed but a warning is logged, since the LLM context will truncate the tail |
 | `COLLECTION_PREFIX` | `mem-zero` | Qdrant collection name prefix |
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `8765` | Server port |
@@ -505,6 +516,7 @@ All settings are via environment variables.
 | `DIAGNOSTICS_ENABLED` | `false` | Enable performance and accuracy metrics on the dashboard |
 | `RERANK_ENABLED` | `false` | Rerank search results with a CPU cross-encoder for sharper relevance scores (~0.5s extra per search, ~200 MB RAM) |
 | `RERANK_MODEL` | `Xenova/ms-marco-MiniLM-L-6-v2` | fastembed cross-encoder model used when reranking |
+| `STATS_PATH` | `/mem-zero/storage/diagnostics.json` | File where diagnostics counters are persisted across restarts |
 
 ### Bundled backend
 
@@ -521,6 +533,7 @@ All settings are via environment variables.
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama API URL |
 | `LLM_MODEL` | `qwen2.5:7b` | Model for fact extraction and dedup |
 | `EMBEDDER_MODEL` | `nomic-embed-text` | Embedding model |
+| `OLLAMA_MAX_CONCURRENT` | `2` | Max concurrent requests to Ollama |
 
 ### OpenAI backend
 
