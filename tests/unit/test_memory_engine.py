@@ -1482,3 +1482,73 @@ class TestRerankModelValidation:
         assert [r.id for r in out2] == ["a", "b"]
         assert loads == 1  # second search short-circuited
         assert eng._reranker_error is not None
+
+
+class TestDimensionGuardCacheLifecycle:
+    """Adversarial-review findings: the mismatch cache must be cleared by
+    delete paths, and a guard BYPASS must never put a collection on the
+    fast path."""
+
+    @staticmethod
+    def _mismatched(mock_qdrant: AsyncMock) -> None:
+        col = MagicMock()
+        col.name = "test_proj"
+        mock_qdrant.get_collections.return_value = MagicMock(collections=[col])
+        info = MagicMock()
+        info.config.params.vectors.size = 512  # backend is 768
+        mock_qdrant.get_collection.return_value = info
+
+    @pytest.mark.asyncio
+    async def test_delete_project_clears_mismatch_so_slug_can_be_recreated(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        from mem_zero.memory_engine import DimensionMismatchError
+        self._mismatched(mock_qdrant)
+        with pytest.raises(DimensionMismatchError):
+            await engine._ensure_collection("proj")
+        assert await engine.delete_project("proj") is True
+        # Collection is gone: a fresh add must create it, not hit a stale guard.
+        mock_qdrant.get_collections.return_value = MagicMock(collections=[])
+        assert await engine._ensure_collection("proj") == "test_proj"
+        mock_qdrant.create_collection.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_all_clears_mismatch(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        # delete_all recreates the collection; the stale mismatch entry must go.
+        engine._dimension_mismatch.add("test_proj")
+        engine._ensured_collections.add("test_proj")  # simulate prior fast-path
+        mock_qdrant.get_collection.return_value = MagicMock(points_count=1)
+        await engine.delete_all("proj")
+        assert "test_proj" not in engine._dimension_mismatch
+
+    @pytest.mark.asyncio
+    async def test_failed_reembed_does_not_poison_fast_path(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        # reembed bypasses the guard; if it then FAILS before recreating, the
+        # collection must not be left on the fast path (which would let every
+        # later add/search skip the guard and hit Qdrant's raw dim error).
+        from mem_zero.memory_engine import DimensionMismatchError
+        self._mismatched(mock_qdrant)
+        pt = _pt("id-a", "some text", [0.1])
+        mock_qdrant.scroll.return_value = ([pt], None)
+        mock_backend.embed.side_effect = Exception("embedder down")
+        with pytest.raises(Exception, match="embedder down"):
+            await engine.reembed_all("proj")
+        assert "test_proj" not in engine._ensured_collections
+        # And the guard still fires for a normal caller afterwards.
+        with pytest.raises(DimensionMismatchError):
+            await engine._ensure_collection("proj")
+
+
+class TestEmbedCountCheck:
+    @pytest.mark.asyncio
+    async def test_short_batch_is_embedding_error(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        from mem_zero.memory_engine import EmbeddingError
+        mock_backend.embed.side_effect = lambda texts: [[0.1] * 768]  # 1 for 2
+        with pytest.raises(EmbeddingError, match="1 vectors for 2"):
+            await engine._timed_embed(["a", "b"])

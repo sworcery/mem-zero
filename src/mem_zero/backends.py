@@ -16,6 +16,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class EmbeddingError(Exception):
+    """An embedding call produced unusable output (wrong count/size, zero
+    vector, or a fallback whose vectors do not fit the collection)."""
+
+
 # OllamaBackend transient-failure retry: 2 attempts total, short backoff.
 _OLLAMA_ATTEMPTS = 2
 _OLLAMA_RETRY_BACKOFF_S = 0.5
@@ -144,6 +149,11 @@ class OllamaBackend(LLMBackend):
                     continue
                 resp.raise_for_status()
                 return resp
+            except httpx.TimeoutException:
+                # A slow model is not a transient blip: retrying a 120 s
+                # timeout would double the hang before failover. Let it fall
+                # through to the breaker immediately.
+                raise
             except httpx.TransportError as exc:
                 last = exc
                 if attempt < _OLLAMA_ATTEMPTS - 1:
@@ -413,7 +423,7 @@ class FallbackBackend(LLMBackend):
         # A fallback that emits a different vector size than the collection was
         # created with would be silently rejected/corrupt; fail loudly instead.
         if fallback.embedding_dimensions != self._primary.embedding_dimensions:
-            raise RuntimeError(
+            raise EmbeddingError(
                 f"Fallback embedder produces {fallback.embedding_dimensions}-dim "
                 f"vectors but the collection expects "
                 f"{self._primary.embedding_dimensions}. Align EMBEDDER_DIMENSIONS "

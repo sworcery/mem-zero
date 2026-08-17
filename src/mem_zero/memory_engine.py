@@ -21,7 +21,7 @@ from qdrant_client.models import (
     VectorParams,
 )
 
-from .backends import LLMBackend
+from .backends import EmbeddingError, LLMBackend
 from .config import Config
 from .models import MemoryRecord, ProjectInfo
 from .stats import NULL_STATS, DiagnosticStats, _NullStats
@@ -169,8 +169,10 @@ _QDRANT_TIMEOUT_S = 60
 CONSOLIDATE_MAX_POINTS = 5000
 
 
-class EmbeddingError(Exception):
-    pass
+# EmbeddingError lives in backends (the layer that raises it) and is
+# re-exported here for existing `from mem_zero.memory_engine import
+# EmbeddingError` callers.
+__all__ = ["EmbeddingError"]
 
 
 class ConsolidationTooLargeError(Exception):
@@ -282,7 +284,12 @@ class MemoryEngine:
                         self._dimension_mismatch_message(name, project_slug, size)
                     )
 
-            self._ensured_collections.add(name)
+            # A bypass (check_dimensions=False, i.e. reembed's migration path)
+            # must NOT record the collection as ensured: if the reembed then
+            # fails before recreating, a cached fast-path entry would let every
+            # later add/search skip the guard and hit Qdrant's raw dim error.
+            if check_dimensions:
+                self._ensured_collections.add(name)
             return name
 
     @staticmethod
@@ -346,6 +353,12 @@ class MemoryEngine:
             self._stats.inc("embed")
             self._stats.inc("embed.texts", len(texts))
             expected = self._backend.embedding_dimensions
+            if len(result) != len(texts):
+                self._stats.inc("embed.bad_count")
+                raise EmbeddingError(
+                    f"Embedding backend returned {len(result)} vectors for "
+                    f"{len(texts)} texts"
+                )
             for i, vec in enumerate(result):
                 if not any(vec):
                     self._stats.inc("embed.zero_vectors")
@@ -895,6 +908,7 @@ class MemoryEngine:
         count = await self.count_memories(project_slug)
         await self._qdrant.delete_collection(collection)
         self._ensured_collections.discard(collection)
+        self._dimension_mismatch.discard(collection)
         await self._ensure_collection(project_slug)
         return count
 
@@ -981,7 +995,7 @@ class MemoryEngine:
                 return None
             keys = [str(k).strip() for k in parsed if str(k).strip()]
             return keys if keys else None
-        except (ValueError, SyntaxError):
+        except (ValueError, SyntaxError, RecursionError, MemoryError):
             return None
 
     async def cleanup_text(self, project_slug: str) -> dict[str, int]:
@@ -1272,6 +1286,9 @@ class MemoryEngine:
             return False
         await self._qdrant.delete_collection(collection)
         self._ensured_collections.discard(collection)
+        # Otherwise a mismatched-then-deleted slug can never be recreated
+        # until restart (the guard fires before any Qdrant call).
+        self._dimension_mismatch.discard(collection)
         self._stats.inc("delete_project")
         # Drop the slug's counters outright, otherwise a deleted project keeps
         # appearing in /diagnostics for 180 days.

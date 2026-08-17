@@ -168,7 +168,10 @@ class TestFallbackBackend:
             primary, MagicMock(return_value=fb), cooldown_seconds=0.0
         )
         primary.embed.side_effect = Exception("embed down")
-        with pytest.raises(RuntimeError, match="dim"):
+        # EmbeddingError (not RuntimeError) so the server maps it to 503 with a
+        # hint instead of a bare 500.
+        from mem_zero.backends import EmbeddingError
+        with pytest.raises(EmbeddingError, match="dim"):
             await backend.embed(["test"])
 
 

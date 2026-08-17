@@ -9,6 +9,7 @@ from typing import TypeVar
 
 from fastapi import FastAPI, HTTPException, Path, Query, Request, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError as PydanticValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import __version__
@@ -196,6 +197,11 @@ async def _run(coro: Awaitable[T], *, op: str) -> T:
         return await coro
     except HTTPException:
         raise
+    except PydanticValidationError as exc:
+        # Subclasses ValueError, but a record that fails to build from a
+        # stored payload is a server-side data problem, not a client error.
+        logger.exception("%s: invalid stored data", op)
+        raise HTTPException(status_code=500, detail=f"Internal error in {op}") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except (MaintenanceInProgressError, DimensionMismatchError) as exc:
