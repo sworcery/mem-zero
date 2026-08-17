@@ -39,7 +39,12 @@ class Config:
     ollama_base_url: str = "http://127.0.0.1:11434"
     llm_model: str = "qwen2.5:7b"
     embedder_model: str = "nomic-embed-text"
-    embedding_dimensions: int = 768
+    # None = "not explicitly set": create_backend picks the right default per
+    # backend (768 for Ollama/bundled nomic, the model's native size for
+    # OpenAI). A hardcoded 768 here used to be forced onto OpenAIBackend,
+    # whose text-embedding-3-small returns 1536-dim vectors -> every write
+    # failed against a 768-dim collection.
+    embedding_dimensions: int | None = None
     ollama_max_concurrent: int = 2
 
     # Bundled settings (used when llm_backend=bundled, also used as fallback for ollama)
@@ -94,6 +99,12 @@ class Config:
             val = os.environ.get(key, "")
             return val if val else None
 
+        def _opt_int(key: str, minimum: int) -> int | None:
+            raw = os.environ.get(key, "")
+            if not raw:
+                return None
+            return _int(key, 0, minimum=minimum)
+
         explicit_backend = os.environ.get("LLM_BACKEND", "").strip().lower()
         if explicit_backend:
             backend = explicit_backend
@@ -121,7 +132,7 @@ class Config:
             ollama_base_url=_ensure_scheme(_str("OLLAMA_BASE_URL", "http://127.0.0.1:11434")),
             llm_model=_str("LLM_MODEL", "qwen2.5:7b"),
             embedder_model=_str("EMBEDDER_MODEL", "nomic-embed-text"),
-            embedding_dimensions=_int("EMBEDDER_DIMENSIONS", 768, minimum=1),
+            embedding_dimensions=_opt_int("EMBEDDER_DIMENSIONS", minimum=1),
             ollama_max_concurrent=_int("OLLAMA_MAX_CONCURRENT", 2, minimum=1),
             bundled_model_path=_str(
                 "BUNDLED_MODEL_PATH",

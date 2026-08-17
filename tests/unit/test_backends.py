@@ -111,7 +111,11 @@ class TestFallbackBackend:
         primary.embed.side_effect = Exception("embed failed")
         result = await backend.embed(["test"])
         assert result == [[0.2] * 768]
-        assert backend.is_degraded is True
+        # Embed and generate breakers are independent: an embed outage must
+        # NOT report the LLM as degraded (that would make the engine skip
+        # dedup for every concurrent add).
+        assert backend.embed_degraded is True
+        assert backend.is_degraded is False
 
     @pytest.mark.asyncio
     async def test_health_ping_delegates_to_primary(
@@ -247,3 +251,234 @@ class TestOpenAIBackend:
         backend = OpenAIBackend.__new__(OpenAIBackend)
         backend._dims = 1536
         assert backend.embedding_dimensions == 1536
+
+
+class TestFallbackBreakerIndependence:
+    @pytest.fixture
+    def primary(self) -> AsyncMock:
+        p = AsyncMock(spec=LLMBackend)
+        p.embedding_dimensions = 768
+        p.generate.return_value = '["fact"]'
+        p.embed.return_value = [[0.1] * 768]
+        return p
+
+    @pytest.fixture
+    def factory(self) -> MagicMock:
+        fb = AsyncMock()
+        fb.embedding_dimensions = 768
+        fb.generate.return_value = '["fallback fact"]'
+        fb.embed.return_value = [[0.2] * 768]
+        return MagicMock(return_value=fb)
+
+    @pytest.mark.asyncio
+    async def test_embed_failure_does_not_degrade_generate(
+        self, primary: AsyncMock, factory: MagicMock
+    ) -> None:
+        backend = FallbackBackend(primary, factory, cooldown_seconds=60.0)
+        primary.embed.side_effect = Exception("embed down")
+        await backend.embed(["x"])
+        # generate is untouched: still healthy, still hits the primary.
+        assert backend.is_degraded is False
+        result = await backend.generate("s", "u")
+        assert result == '["fact"]'
+        primary.generate.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_cooldown_does_not_block_embed(
+        self, primary: AsyncMock, factory: MagicMock
+    ) -> None:
+        backend = FallbackBackend(primary, factory, cooldown_seconds=60.0)
+        primary.generate.side_effect = Exception("llm down")
+        await backend.generate("s", "u")  # trips the GENERATE breaker only
+        assert backend.is_degraded is True
+        # embed must still go to the primary, not the bundled fallback.
+        result = await backend.embed(["x"])
+        assert result == [[0.1] * 768]
+        primary.embed.assert_awaited_once()
+        assert backend.embed_degraded is False
+
+    @pytest.mark.asyncio
+    async def test_generate_recovery_does_not_heal_embed(
+        self, primary: AsyncMock, factory: MagicMock
+    ) -> None:
+        # The old single flag let a successful generate "heal" a still-broken
+        # embed path (and vice-versa).
+        backend = FallbackBackend(primary, factory, cooldown_seconds=0.0)
+        primary.embed.side_effect = Exception("embed down")
+        await backend.embed(["x"])
+        assert backend.embed_degraded is True
+        await backend.generate("s", "u")  # healthy generate
+        assert backend.embed_degraded is True  # unchanged
+
+
+class TestOllamaRetry:
+    @staticmethod
+    def _backend() -> OllamaBackend:
+        b = OllamaBackend.__new__(OllamaBackend)
+        b._llm_model = "m"
+        b._embed_model = "e"
+        b._dims = 768
+        import asyncio
+        b._semaphore = asyncio.Semaphore(2)
+        return b
+
+    @staticmethod
+    def _ok(payload: dict) -> MagicMock:
+        r = MagicMock()
+        r.status_code = 200
+        r.raise_for_status = MagicMock()
+        r.json.return_value = payload
+        return r
+
+    @pytest.mark.asyncio
+    async def test_retries_once_on_connect_error_then_succeeds(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import httpx
+
+        import mem_zero.backends as bk
+        monkeypatch.setattr(bk, "_OLLAMA_RETRY_BACKOFF_S", 0)
+        b = self._backend()
+        b._http = AsyncMock()
+        b._http.post.side_effect = [
+            httpx.ConnectError("reset"),
+            self._ok({"embeddings": [[0.1] * 768]}),
+        ]
+        out = await b.embed(["x"])
+        assert out == [[0.1] * 768]
+        assert b._http.post.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retries_on_5xx(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import mem_zero.backends as bk
+        monkeypatch.setattr(bk, "_OLLAMA_RETRY_BACKOFF_S", 0)
+        b = self._backend()
+        b._http = AsyncMock()
+        bad = MagicMock()
+        bad.status_code = 503
+        bad.request = MagicMock()
+        b._http.post.side_effect = [bad, self._ok({"embeddings": [[0.1] * 768]})]
+        out = await b.embed(["x"])
+        assert out == [[0.1] * 768]
+        assert b._http.post.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_no_retry_on_4xx(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        import mem_zero.backends as bk
+        monkeypatch.setattr(bk, "_OLLAMA_RETRY_BACKOFF_S", 0)
+        b = self._backend()
+        b._http = AsyncMock()
+        bad = MagicMock()
+        bad.status_code = 404
+        bad.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "not found", request=MagicMock(), response=bad
+        )
+        b._http.post.return_value = bad
+        with pytest.raises(httpx.HTTPStatusError):
+            await b.embed(["x"])
+        assert b._http.post.call_count == 1  # config error: never retried
+
+    @pytest.mark.asyncio
+    async def test_gives_up_after_two_transport_errors(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import httpx
+
+        import mem_zero.backends as bk
+        monkeypatch.setattr(bk, "_OLLAMA_RETRY_BACKOFF_S", 0)
+        b = self._backend()
+        b._http = AsyncMock()
+        b._http.post.side_effect = httpx.ConnectError("down")
+        with pytest.raises(httpx.ConnectError):
+            await b.embed(["x"])
+        assert b._http.post.call_count == 2
+
+
+class TestOpenAIEmbed:
+    @staticmethod
+    def _backend(model: str = "text-embedding-3-small") -> OpenAIBackend:
+        b = OpenAIBackend.__new__(OpenAIBackend)
+        b._llm_model = "gpt"
+        b._embed_model = model
+        b._dims = 1536
+        b._send_dimensions = model.startswith("text-embedding-3")
+        b._http = AsyncMock()
+        return b
+
+    @staticmethod
+    def _resp(data: list[dict]) -> MagicMock:
+        r = MagicMock()
+        r.raise_for_status = MagicMock()
+        r.json.return_value = {"data": data}
+        return r
+
+    @pytest.mark.asyncio
+    async def test_embed_sorted_by_index(self) -> None:
+        # The API returns "index" because order is not guaranteed; add() zips
+        # vectors against facts, so a reorder would silently mis-attach them.
+        b = self._backend()
+        b._http.post.return_value = self._resp(
+            [{"index": 1, "embedding": [1.0]}, {"index": 0, "embedding": [0.0]}]
+        )
+        assert await b.embed(["a", "b"]) == [[0.0], [1.0]]
+
+    @pytest.mark.asyncio
+    async def test_sends_dimensions_for_v3(self) -> None:
+        b = self._backend("text-embedding-3-small")
+        b._http.post.return_value = self._resp([{"index": 0, "embedding": [0.0]}])
+        await b.embed(["a"])
+        assert b._http.post.call_args.kwargs["json"]["dimensions"] == 1536
+
+    @pytest.mark.asyncio
+    async def test_omits_dimensions_for_ada(self) -> None:
+        # ada-002 (and most OpenAI-compatible proxies) reject the field.
+        b = self._backend("text-embedding-ada-002")
+        b._http.post.return_value = self._resp([{"index": 0, "embedding": [0.0]}])
+        await b.embed(["a"])
+        assert "dimensions" not in b._http.post.call_args.kwargs["json"]
+
+    @pytest.mark.asyncio
+    async def test_health_ping_uses_models_endpoint(self) -> None:
+        b = self._backend()
+        ok = MagicMock()
+        ok.status_code = 200
+        b._http.get.return_value = ok
+        assert await b.health_ping() is True
+        assert b._http.get.call_args.args[0] == "/models"
+
+    @pytest.mark.asyncio
+    async def test_health_ping_false_on_error(self) -> None:
+        # A revoked key / dead endpoint must not report healthy.
+        b = self._backend()
+        b._http.get.side_effect = Exception("401")
+        assert await b.health_ping() is False
+
+
+class TestCreateBackendDimensions:
+    def test_openai_defaults_to_model_native_dims(self) -> None:
+        # The bug: config default 768 was forced onto OpenAIBackend, whose
+        # 1536-dim vectors then failed against a 768-dim collection.
+        config = Config(llm_backend="openai", openai_api_key="sk",
+                        openai_embed_model="text-embedding-3-large")
+        assert create_backend(config).embedding_dimensions == 3072
+
+    def test_openai_small_defaults_1536(self) -> None:
+        config = Config(llm_backend="openai", openai_api_key="sk")
+        assert create_backend(config).embedding_dimensions == 1536
+
+    def test_openai_explicit_dims_respected(self) -> None:
+        config = Config(llm_backend="openai", openai_api_key="sk",
+                        embedding_dimensions=512)
+        assert create_backend(config).embedding_dimensions == 512
+
+    def test_ollama_defaults_768_when_unset(self) -> None:
+        config = Config(llm_backend="ollama")
+        with patch("mem_zero.backends.OllamaBackend") as ob:
+            create_backend(config)
+        assert ob.call_args.kwargs["dimensions"] == 768
+
+    def test_from_env_dims_unset_is_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("EMBEDDER_DIMENSIONS", raising=False)
+        assert Config.from_env().embedding_dimensions is None

@@ -16,6 +16,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# OllamaBackend transient-failure retry: 2 attempts total, short backoff.
+_OLLAMA_ATTEMPTS = 2
+_OLLAMA_RETRY_BACKOFF_S = 0.5
+
+
 class LLMBackend(ABC):
     @abstractmethod
     async def generate(
@@ -34,6 +39,9 @@ class LLMBackend(ABC):
         return False
 
     async def health_ping(self) -> bool:
+        # In-process backends are healthy iff they were constructed; remote
+        # backends MUST override this — a reachable-endpoint no-op here would
+        # make /health lie about a revoked key or dead URL.
         return True
 
     async def close(self) -> None:  # noqa: B027
@@ -90,6 +98,10 @@ class BundledBackend(LLMBackend):
 
         return await asyncio.to_thread(_run)
 
+    async def health_ping(self) -> bool:
+        # In-process: if __init__ loaded the GGUF and the embedder, it works.
+        return True
+
 
 class OllamaBackend(LLMBackend):
 
@@ -112,11 +124,40 @@ class OllamaBackend(LLMBackend):
     def embedding_dimensions(self) -> int:
         return self._dims
 
+    async def _post_with_retry(
+        self, path: str, json: dict[str, object], timeout: float
+    ) -> httpx.Response:
+        # One retry on transient failures (connection reset, 5xx while Ollama
+        # swaps models) BEFORE the FallbackBackend breaker trips. Without this
+        # a single blip cost 30 s of degraded, dedup-free adds plus a
+        # multi-GB GGUF load. Never retry 4xx: those are config errors.
+        last: Exception | None = None
+        for attempt in range(_OLLAMA_ATTEMPTS):
+            try:
+                resp = await self._http.post(path, json=json, timeout=timeout)
+                if resp.status_code >= 500 and attempt < _OLLAMA_ATTEMPTS - 1:
+                    last = httpx.HTTPStatusError(
+                        f"server error {resp.status_code}", request=resp.request,
+                        response=resp,
+                    )
+                    await asyncio.sleep(_OLLAMA_RETRY_BACKOFF_S)
+                    continue
+                resp.raise_for_status()
+                return resp
+            except httpx.TransportError as exc:
+                last = exc
+                if attempt < _OLLAMA_ATTEMPTS - 1:
+                    await asyncio.sleep(_OLLAMA_RETRY_BACKOFF_S)
+                    continue
+                raise
+        assert last is not None  # unreachable: loop always returns or raises
+        raise last
+
     async def generate(
         self, system: str, user: str, schema: dict[str, object] | None = None
     ) -> str:
         async with self._semaphore:
-            resp = await self._http.post(
+            resp = await self._post_with_retry(
                 "/api/chat",
                 json={
                     "model": self._llm_model,
@@ -143,12 +184,11 @@ class OllamaBackend(LLMBackend):
                 },
                 timeout=120.0,
             )
-            resp.raise_for_status()
             return resp.json()["message"]["content"]
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         async with self._semaphore:
-            resp = await self._http.post(
+            resp = await self._post_with_retry(
                 "/api/embed",
                 json={
                     "model": self._embed_model,
@@ -158,7 +198,6 @@ class OllamaBackend(LLMBackend):
                 # Batched inputs on a cold model can exceed the client default.
                 timeout=120.0,
             )
-            resp.raise_for_status()
             return resp.json()["embeddings"]
 
     @staticmethod
@@ -207,10 +246,23 @@ class OpenAIBackend(LLMBackend):
         self._llm_model = llm_model
         self._embed_model = embed_model
         self._dims = dimensions
+        # Only text-embedding-3-* accept a "dimensions" request field; ada-002
+        # and most OpenAI-compatible proxies reject it. Sending it for v3 keeps
+        # the returned vector size pinned to what the collection was created
+        # with instead of trusting a default that may not match.
+        self._send_dimensions = embed_model.startswith("text-embedding-3")
 
     @property
     def embedding_dimensions(self) -> int:
         return self._dims
+
+    async def health_ping(self) -> bool:
+        # A real probe: a revoked key or dead endpoint must not report healthy.
+        try:
+            resp = await self._http.get("/models", timeout=5.0)
+            return resp.status_code == 200
+        except Exception:
+            return False
 
     async def generate(
         self, system: str, user: str, schema: dict[str, object] | None = None
@@ -231,16 +283,29 @@ class OpenAIBackend(LLMBackend):
         return resp.json()["choices"][0]["message"]["content"]
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        resp = await self._http.post(
-            "/embeddings",
-            json={"model": self._embed_model, "input": texts},
-        )
+        body: dict[str, object] = {"model": self._embed_model, "input": texts}
+        if self._send_dimensions:
+            body["dimensions"] = self._dims
+        resp = await self._http.post("/embeddings", json=body)
         resp.raise_for_status()
-        data = resp.json()["data"]
+        # The API documents "index" precisely because order is not guaranteed;
+        # add() zips these against the input facts, so a reordering would
+        # silently attach the wrong vector to the wrong memory.
+        data = sorted(resp.json()["data"], key=lambda item: item["index"])
         return [item["embedding"] for item in data]
 
     async def close(self) -> None:
         await self._http.aclose()
+
+
+class _BreakerState:
+    """Per-path circuit-breaker state (generate and embed are independent)."""
+
+    __slots__ = ("using_fallback", "cooldown_until")
+
+    def __init__(self) -> None:
+        self.using_fallback = False
+        self.cooldown_until = 0.0
 
 
 class FallbackBackend(LLMBackend):
@@ -256,22 +321,27 @@ class FallbackBackend(LLMBackend):
         self._primary = primary
         self._fallback_factory = fallback_factory
         self._fallback: BundledBackend | None = None
-        self._using_fallback = False
         # Circuit breaker: after the primary fails, skip it entirely for this
         # long so every request during an outage fails over instantly instead
         # of each paying the full primary timeout.
+        #
+        # generate and embed hit DIFFERENT Ollama endpoints/models, so they
+        # get independent breaker state. One shared flag meant an embed-only
+        # outage forced a multi-GB LLM load, and a successful generate "healed"
+        # a still-broken embed path (and vice-versa).
         self._cooldown_seconds = cooldown_seconds
-        self._cooldown_until = 0.0
+        self._gen = _BreakerState()
+        self._emb = _BreakerState()
         self._fallback_lock = asyncio.Lock()
         from .stats import NULL_STATS
 
         self._stats = stats or NULL_STATS
 
-    def _primary_in_cooldown(self) -> bool:
-        return time.monotonic() < self._cooldown_until
+    def _in_cooldown(self, state: _BreakerState) -> bool:
+        return time.monotonic() < state.cooldown_until
 
-    def _trip_breaker(self) -> None:
-        self._cooldown_until = time.monotonic() + self._cooldown_seconds
+    def _trip(self, state: _BreakerState) -> None:
+        state.cooldown_until = time.monotonic() + self._cooldown_seconds
 
     async def _get_fallback(self) -> BundledBackend:
         if self._fallback is not None:
@@ -291,44 +361,51 @@ class FallbackBackend(LLMBackend):
 
     @property
     def is_degraded(self) -> bool:
-        return self._using_fallback
+        # Dedup only cares whether the LLM (generate) is on the fallback: the
+        # bundled 3B model gives poor dedup decisions, so the engine skips
+        # dedup while degraded. Embedding state is reported separately.
+        return self._gen.using_fallback
+
+    @property
+    def embed_degraded(self) -> bool:
+        return self._emb.using_fallback
 
     async def generate(
         self, system: str, user: str, schema: dict[str, object] | None = None
     ) -> str:
-        if self._primary_in_cooldown():
+        if self._in_cooldown(self._gen):
             fallback = await self._get_fallback()
             return await fallback.generate(system, user, schema)
         try:
             result = await self._primary.generate(system, user, schema)
-            if self._using_fallback:
-                self._using_fallback = False
+            if self._gen.using_fallback:
+                self._gen.using_fallback = False
                 self._stats.inc("backend.recovery")
             return result
         except Exception as exc:
             logger.warning("Primary backend failed (%s), using bundled fallback", exc)
-            if not self._using_fallback:
+            if not self._gen.using_fallback:
                 self._stats.inc("backend.fallback")
-            self._using_fallback = True
-            self._trip_breaker()
+            self._gen.using_fallback = True
+            self._trip(self._gen)
             fallback = await self._get_fallback()
             return await fallback.generate(system, user, schema)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        if self._primary_in_cooldown():
+        if self._in_cooldown(self._emb):
             return await self._embed_fallback(texts)
         try:
             result = await self._primary.embed(texts)
-            if self._using_fallback:
-                self._using_fallback = False
-                self._stats.inc("backend.recovery")
+            if self._emb.using_fallback:
+                self._emb.using_fallback = False
+                self._stats.inc("backend.embed_recovery")
             return result
         except Exception as exc:
             logger.warning("Primary embedding failed (%s), using bundled fallback", exc)
-            if not self._using_fallback:
-                self._stats.inc("backend.fallback")
-            self._using_fallback = True
-            self._trip_breaker()
+            if not self._emb.using_fallback:
+                self._stats.inc("backend.embed_fallback")
+            self._emb.using_fallback = True
+            self._trip(self._emb)
             return await self._embed_fallback(texts)
 
     async def _embed_fallback(self, texts: list[str]) -> list[list[float]]:
@@ -353,6 +430,16 @@ class FallbackBackend(LLMBackend):
             await self._fallback.close()
 
 
+# Native output sizes of OpenAI's embedding models, used when
+# EMBEDDER_DIMENSIONS is not set explicitly.
+_OPENAI_EMBED_DIMS = {
+    "text-embedding-3-small": 1536,
+    "text-embedding-3-large": 3072,
+    "text-embedding-ada-002": 1536,
+}
+_DEFAULT_LOCAL_EMBED_DIMS = 768  # nomic-embed-text (Ollama and bundled)
+
+
 def create_backend(
     config: Config,
     stats: DiagnosticStats | _NullStats | None = None,
@@ -365,7 +452,8 @@ def create_backend(
             base_url=config.openai_base_url,
             llm_model=config.openai_model,
             embed_model=config.openai_embed_model,
-            dimensions=config.embedding_dimensions,
+            dimensions=config.embedding_dimensions
+            or _OPENAI_EMBED_DIMS.get(config.openai_embed_model, 1536),
         )
 
     if config.llm_backend == "ollama":
@@ -373,7 +461,7 @@ def create_backend(
             base_url=config.ollama_base_url,
             llm_model=config.llm_model,
             embed_model=config.embedder_model,
-            dimensions=config.embedding_dimensions,
+            dimensions=config.embedding_dimensions or _DEFAULT_LOCAL_EMBED_DIMS,
             max_concurrent=config.ollama_max_concurrent,
         )
 

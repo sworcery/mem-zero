@@ -48,7 +48,9 @@ class TestConfig:
         assert config.qdrant_host == "127.0.0.1"
         assert config.qdrant_port == 6333
         assert config.embedder_model == "nomic-embed-text"
-        assert config.embedding_dimensions == 768
+        # None = not explicitly set; create_backend resolves a per-backend
+        # default (768 for Ollama/bundled, the model's native size for OpenAI).
+        assert config.embedding_dimensions is None
         assert config.collection_prefix == "mem-zero"
 
     def test_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
