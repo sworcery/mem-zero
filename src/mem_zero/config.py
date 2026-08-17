@@ -22,6 +22,21 @@ def validate_slug(slug: str) -> str:
     return slug
 
 
+USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}\Z")
+
+
+def validate_user_id(user_id: str) -> str:
+    # One rule for REST and MCP. user_id is a payload tag and a filter value,
+    # so it must be bounded and plain — REST used to accept anything, MCP
+    # enforced a slightly different inline check.
+    if not USER_ID_PATTERN.match(user_id):
+        raise ValueError(
+            f"Invalid user_id: {user_id!r}. "
+            "Must be 1-63 alphanumeric chars, hyphens, or underscores."
+        )
+    return user_id
+
+
 @dataclass(frozen=True)
 class Config:
     host: str = "0.0.0.0"

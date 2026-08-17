@@ -814,36 +814,51 @@ class MemoryEngine:
         self._stats.record_latency("search", (time.monotonic() - t0) * 1000)
         return results
 
-    async def list_all(
+    async def list_page(
         self,
         project_slug: str,
         limit: int = 50,
-        offset: int | None = None,
-    ) -> list[MemoryRecord]:
+        offset: str | int | None = None,
+    ) -> tuple[list[MemoryRecord], str | None]:
+        """One page of memories plus the cursor for the next page (None at end).
+
+        The cursor is Qdrant's scroll offset (a point id); clients pass it
+        back as `offset`. This is what lets export walk past the 1000-row
+        per-request ceiling instead of silently truncating.
+        """
         collection = await self._ensure_collection(project_slug)
-        points, _next_offset = await self._qdrant.scroll(
+        points, next_offset = await self._qdrant.scroll(
             collection_name=collection,
             limit=limit,
             offset=offset,
             with_payload=True,
             with_vectors=False,
         )
-
-        return [
+        records = [
             MemoryRecord(
                 id=str(pt.id),
-                text=pt.payload.get("text", ""),
-                user_id=pt.payload.get("user_id", ""),
-                created_at=pt.payload.get("created_at", 0),
-                updated_at=pt.payload.get("updated_at", 0),
+                text=(pt.payload or {}).get("text", ""),
+                user_id=(pt.payload or {}).get("user_id", ""),
+                created_at=(pt.payload or {}).get("created_at", 0),
+                updated_at=(pt.payload or {}).get("updated_at", 0),
                 metadata={
                     k: v
-                    for k, v in pt.payload.items()
+                    for k, v in (pt.payload or {}).items()
                     if k not in RESERVED_PAYLOAD_KEYS
                 },
             )
             for pt in points
         ]
+        return records, (str(next_offset) if next_offset is not None else None)
+
+    async def list_all(
+        self,
+        project_slug: str,
+        limit: int = 50,
+        offset: str | int | None = None,
+    ) -> list[MemoryRecord]:
+        records, _ = await self.list_page(project_slug, limit=limit, offset=offset)
+        return records
 
     async def count_memories(self, project_slug: str) -> int:
         collection = await self._ensure_collection(project_slug)

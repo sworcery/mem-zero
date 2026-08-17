@@ -146,3 +146,76 @@ class TestDashboardAuth:
     def test_health_open_without_any_auth(self, dash_client) -> None:
         resp = dash_client.get("/health")
         assert resp.status_code == 200
+
+
+@pytest.fixture
+def dash_only_client(mock_engine, mock_backend, monkeypatch):
+    # The previously-untested combination: dashboard creds, NO api key.
+    monkeypatch.delenv("API_KEY", raising=False)
+    yield _make_client(
+        mock_engine,
+        mock_backend,
+        monkeypatch,
+        {"DASHBOARD_USER": "admin", "DASHBOARD_PASS": "hunter2"},
+    )
+    sys.modules.pop("mem_zero.server", None)
+
+
+class TestDashboardOnlyConfig:
+    @staticmethod
+    def _basic(user: str, pw: str) -> dict[str, str]:
+        token = base64.b64encode(f"{user}:{pw}".encode()).decode()
+        return {"Authorization": f"Basic {token}"}
+
+    def test_api_requires_basic_auth_when_no_api_key(self, dash_only_client) -> None:
+        # The bug: DashboardAuthMiddleware fell through unauthenticated /api
+        # requests, and with no APIKeyMiddleware behind it the whole API and
+        # MCP were open behind a dashboard that LOOKED password-protected.
+        resp = dash_only_client.get("/api/v1/projects")
+        assert resp.status_code == 401
+        assert resp.headers["WWW-Authenticate"].startswith("Basic")
+
+    def test_mcp_requires_basic_auth_when_no_api_key(self, dash_only_client) -> None:
+        resp = dash_only_client.post("/mcp/my-project/http/john", json={})
+        assert resp.status_code == 401
+
+    def test_basic_auth_opens_api(self, dash_only_client) -> None:
+        resp = dash_only_client.get(
+            "/api/v1/projects", headers=self._basic("admin", "hunter2")
+        )
+        assert resp.status_code == 200
+
+    def test_health_still_open(self, dash_only_client) -> None:
+        assert dash_only_client.get("/health").status_code == 200
+
+
+class TestAlwaysOpenExactMatch:
+    def test_health_prefix_variants_are_not_treated_as_open(self, api_client) -> None:
+        # _ALWAYS_OPEN used startswith, so any path beginning "/health" was
+        # exempted from the auth middlewares. Only the exact "/health" is open
+        # now; a prefix variant is just an ordinary (unrouted -> 404) path and
+        # is no longer special-cased.
+        from mem_zero import server as server_mod
+        assert "/health" in server_mod._ALWAYS_OPEN
+        assert api_client.get("/health").status_code == 200
+        assert api_client.get("/healthz").status_code == 404
+        # And a gated path is still gated regardless.
+        assert api_client.get("/api/v1/projects").status_code == 401
+
+
+class TestHalfDashboardCreds:
+    def test_only_user_set_warns_and_disables_dashboard_auth(
+        self, mock_engine, mock_backend, monkeypatch, caplog
+    ) -> None:
+        import logging
+        monkeypatch.delenv("API_KEY", raising=False)
+        monkeypatch.delenv("DASHBOARD_PASS", raising=False)
+        with caplog.at_level(logging.WARNING, logger="mem_zero.server"):
+            client = _make_client(mock_engine, mock_backend, monkeypatch,
+                                  {"DASHBOARD_USER": "admin"})
+        try:
+            assert any("Only one of DASHBOARD_USER" in r.message for r in caplog.records)
+            # Dashboard is not protected (as documented) — but loudly.
+            assert client.get("/api/v1/projects").status_code == 200
+        finally:
+            sys.modules.pop("mem_zero.server", None)

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 import secrets
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 from pathlib import Path as FilePath
+from typing import TypeVar
 
 from fastapi import FastAPI, HTTPException, Path, Query, Request, Response
 from fastapi.staticfiles import StaticFiles
@@ -12,13 +13,16 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import __version__
 from .backends import create_backend
-from .config import Config, validate_slug
+from .config import Config, validate_slug, validate_user_id
 from .mcp_server import mcp_router, set_engine
 from .memory_engine import (
     ConsolidationTooLargeError,
     DimensionMismatchError,
+    EmbeddingError,
+    LLMError,
     MaintenanceInProgressError,
     MemoryEngine,
+    validate_memory_id,
 )
 from .models import MemoryCreate, MemoryRecord, ProjectInfo, SearchRequest
 from .stats import DiagnosticStats
@@ -67,7 +71,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
         path = request.url.path
-        if any(path.startswith(p) for p in _ALWAYS_OPEN):
+        if path in _ALWAYS_OPEN:
             return await call_next(request)
         if any(path.startswith(p) for p in _API_PREFIXES):
             if getattr(request.state, "dashboard_authenticated", False):
@@ -89,10 +93,17 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
 
 class DashboardAuthMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app_: FastAPI, username: str, password: str) -> None:
+    def __init__(
+        self, app_: FastAPI, username: str, password: str, api_key_configured: bool
+    ) -> None:
         super().__init__(app_)
         self._username = username
         self._password = password
+        # When an API key exists, unauthenticated /api requests fall through to
+        # APIKeyMiddleware (Bearer). When it does NOT, this middleware is the
+        # only gate — falling through would leave the whole API and MCP open
+        # behind a dashboard that LOOKS password-protected.
+        self._api_key_configured = api_key_configured
 
     def _valid_basic_auth(self, request: Request) -> bool:
         import base64
@@ -112,14 +123,20 @@ class DashboardAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
         path = request.url.path
-        if any(path.startswith(p) for p in _ALWAYS_OPEN):
+        if path in _ALWAYS_OPEN:
             return await call_next(request)
 
         if any(path.startswith(p) for p in _API_PREFIXES):
             if self._valid_basic_auth(request):
                 request.state.dashboard_authenticated = True
                 return await call_next(request)
-            return await call_next(request)
+            if self._api_key_configured:
+                return await call_next(request)  # Bearer is checked next
+            return Response(
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="mem-zero"'},
+                content="Unauthorized",
+            )
 
         if self._valid_basic_auth(request):
             return await call_next(request)
@@ -141,6 +158,18 @@ if config.dashboard_user and config.dashboard_pass:
         DashboardAuthMiddleware,
         username=config.dashboard_user,
         password=config.dashboard_pass,
+        api_key_configured=bool(config.api_key),
+    )
+    if not config.api_key:
+        logger.warning(
+            "DASHBOARD_USER/PASS set without API_KEY: /api, /mcp and /debug "
+            "require the dashboard Basic-auth credentials"
+        )
+elif config.dashboard_user or config.dashboard_pass:
+    # AO: half-configured used to silently disable dashboard auth.
+    logger.warning(
+        "Only one of DASHBOARD_USER / DASHBOARD_PASS is set — dashboard "
+        "authentication is DISABLED until both are provided"
     )
 
 app.include_router(mcp_router, prefix="/mcp")
@@ -151,6 +180,36 @@ def _validated_slug(slug: str) -> str:
         return validate_slug(slug)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+T = TypeVar("T")
+
+
+async def _run(coro: Awaitable[T], *, op: str) -> T:
+    """One error ladder for every engine call.
+
+    Our own validation messages (ValueError) are safe to echo. Internal
+    failures are logged with the traceback and returned as a generic message —
+    the previous detail=str(exc) leaked Qdrant URLs and backend error bodies.
+    """
+    try:
+        return await coro
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (MaintenanceInProgressError, DimensionMismatchError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ConsolidationTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except (LLMError, EmbeddingError) as exc:
+        logger.warning("%s: backend unavailable: %s", op, exc)
+        raise HTTPException(
+            status_code=503, detail="Language model or embedder unavailable"
+        ) from exc
+    except Exception as exc:
+        logger.exception("%s failed", op)
+        raise HTTPException(status_code=500, detail=f"Internal error in {op}") from exc
 
 
 @app.get("/health")
@@ -177,46 +236,72 @@ async def debug_config() -> dict[str, object]:
         info["ollama_base_url"] = config.ollama_base_url
         info["llm_model"] = config.llm_model
         info["embedder_model"] = config.embedder_model
+        info["fallback_backend"] = "bundled"
     elif config.llm_backend == "openai":
         info["openai_base_url"] = config.openai_base_url
         info["openai_model"] = config.openai_model
         info["openai_embed_model"] = config.openai_embed_model
+        info["fallback_backend"] = None
     else:
         info["bundled_model_path"] = config.bundled_model_path
         info["bundled_embed_model"] = config.bundled_embed_model
         info["bundled_threads"] = config.bundled_threads
+        info["fallback_backend"] = None
     info["embedding_dimensions"] = backend.embedding_dimensions
+    # Booleans/names only — never the key itself. The dashboard's Config tab
+    # read these keys for months and they were never returned (dead tiles).
+    info["degraded"] = bool(getattr(backend, "is_degraded", False))
+    info["embed_degraded"] = bool(getattr(backend, "embed_degraded", False))
+    info["api_key_enabled"] = bool(config.api_key)
+    info["dashboard_auth_enabled"] = bool(config.dashboard_user and config.dashboard_pass)
+    info["rerank_enabled"] = config.rerank_enabled
+    info["rerank_model"] = config.rerank_model
     return info
 
 
 @app.get("/api/v1/projects")
 async def list_projects() -> list[ProjectInfo]:
-    return await engine.list_projects()
+    return await _run(engine.list_projects(), op="list_projects")
 
 
 @app.get("/api/v1/projects/{slug}/memories")
 async def get_memories(
+    response: Response,
     slug: str = Path(...),
     limit: int = Query(default=50, ge=1, le=1000),
+    offset: str | None = Query(default=None),
 ) -> list[MemoryRecord]:
     slug = _validated_slug(slug)
-    return await engine.list_all(slug, limit=limit)
+    cursor: str | None = None
+    if offset:
+        try:
+            cursor = validate_memory_id(offset)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    records, next_offset = await _run(
+        engine.list_page(slug, limit=limit, offset=cursor), op="list_memories"
+    )
+    # Body stays a plain list for dashboard/CLI compatibility; the cursor rides
+    # in a header. Absent header = last page.
+    if next_offset:
+        response.headers["X-Next-Offset"] = next_offset
+    return records
 
 
 @app.post("/api/v1/projects/{slug}/memories")
 async def create_memory(
     body: MemoryCreate,
     slug: str = Path(...),
-    user_id: str = "default",
+    user_id: str = Query(default="default", max_length=63),
 ) -> dict[str, object]:
     slug = _validated_slug(slug)
     try:
-        ids = await engine.add(slug, user_id, [body.text], body.metadata or None)
-    except DimensionMismatchError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to add memory")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        user_id = validate_user_id(user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    ids = await _run(
+        engine.add(slug, user_id, [body.text], body.metadata or None), op="add_memory"
+    )
     return {"stored": len(ids), "ids": ids}
 
 
@@ -226,10 +311,7 @@ async def search_memories(
     slug: str = Path(...),
 ) -> list[MemoryRecord]:
     slug = _validated_slug(slug)
-    try:
-        return await engine.search(slug, body.query, top_k=body.top_k)
-    except DimensionMismatchError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return await _run(engine.search(slug, body.query, top_k=body.top_k), op="search")
 
 
 @app.delete("/api/v1/projects/{slug}/memories/{memory_id}")
@@ -238,21 +320,23 @@ async def remove_memory(
     memory_id: str = Path(...),
 ) -> dict[str, bool]:
     slug = _validated_slug(slug)
-    await engine.delete(slug, memory_id)
+    deleted = await _run(engine.delete(slug, memory_id), op="delete_memory")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Memory not found")
     return {"deleted": True}
 
 
 @app.delete("/api/v1/projects/{slug}/memories")
 async def remove_all_memories(slug: str = Path(...)) -> dict[str, int]:
     slug = _validated_slug(slug)
-    count = await engine.delete_all(slug)
+    count = await _run(engine.delete_all(slug), op="delete_all")
     return {"deleted": count}
 
 
 @app.delete("/api/v1/projects/{slug}")
 async def remove_project(slug: str = Path(...)) -> dict[str, bool]:
     slug = _validated_slug(slug)
-    removed = await engine.delete_project(slug)
+    removed = await _run(engine.delete_project(slug), op="delete_project")
     if not removed:
         raise HTTPException(status_code=404, detail="Project not found")
     return {"deleted": True}
@@ -261,27 +345,14 @@ async def remove_project(slug: str = Path(...)) -> dict[str, bool]:
 @app.post("/api/v1/projects/{slug}/reembed")
 async def reembed_memories(slug: str = Path(...)) -> dict[str, int]:
     slug = _validated_slug(slug)
-    try:
-        count = await engine.reembed_all(slug)
-    except MaintenanceInProgressError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Re-embed failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    count = await _run(engine.reembed_all(slug), op="reembed")
     return {"reembedded": count}
 
 
 @app.post("/api/v1/projects/{slug}/cleanup")
 async def cleanup_memories(slug: str = Path(...)) -> dict[str, int]:
     slug = _validated_slug(slug)
-    try:
-        result = await engine.cleanup_text(slug)
-    except (MaintenanceInProgressError, DimensionMismatchError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Cleanup failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return result
+    return await _run(engine.cleanup_text(slug), op="cleanup")
 
 
 @app.post("/api/v1/projects/{slug}/consolidate")
@@ -291,18 +362,10 @@ async def consolidate_memories(
     dry_run: bool = Query(default=False),
 ) -> dict[str, object]:
     slug = _validated_slug(slug)
-    try:
-        result = await engine.consolidate(
-            slug, similarity_threshold=threshold, dry_run=dry_run
-        )
-    except ConsolidationTooLargeError as exc:
-        raise HTTPException(status_code=413, detail=str(exc)) from exc
-    except (MaintenanceInProgressError, DimensionMismatchError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Consolidation failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return result
+    return await _run(
+        engine.consolidate(slug, similarity_threshold=threshold, dry_run=dry_run),
+        op="consolidate",
+    )
 
 
 @app.get("/api/v1/diagnostics")
@@ -313,15 +376,15 @@ async def get_diagnostics() -> dict[str, object]:
         projects = await engine.list_projects()
         stats.record_daily_snapshot({p.slug: p.memory_count for p in projects})
     except Exception:
-        pass
+        logger.debug("On-demand daily snapshot skipped", exc_info=True)
     return stats.snapshot()
 
 
 @app.get("/api/v1/projects/{slug}/diagnostics")
 async def get_project_diagnostics(slug: str = Path(...)) -> dict[str, object]:
+    slug = _validated_slug(slug)
     if not config.diagnostics_enabled:
         raise HTTPException(status_code=404, detail="Diagnostics disabled")
-    slug = _validated_slug(slug)
     return stats.snapshot(project=slug)
 
 
