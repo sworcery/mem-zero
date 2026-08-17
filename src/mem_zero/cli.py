@@ -1,19 +1,45 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
 import sys
+import tempfile
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote
 
 import httpx
+
+from mem_zero.config import validate_slug
+
+# The server allows LLM extraction up to 120s; a shorter client timeout made
+# `add` report failure for a memory that had actually been stored.
+_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 
 
 def _client(args: argparse.Namespace) -> httpx.Client:
     headers: dict[str, str] = {}
-    if args.api_key:
-        headers["Authorization"] = f"Bearer {args.api_key}"
-    return httpx.Client(base_url=args.url, headers=headers, timeout=30.0)
+    api_key = args.api_key or os.environ.get("MEM_ZERO_API_KEY")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return httpx.Client(base_url=args.url, headers=headers, timeout=_TIMEOUT)
+
+
+def _path(*segments: str) -> str:
+    """Build an API path, URL-encoding each segment so a value containing '/'
+    or '?' cannot retarget the request."""
+    return "/" + "/".join(quote(seg, safe="") for seg in segments)
+
+
+def _check_slug(project: str) -> str | None:
+    """Return an error message if the slug is invalid, else None."""
+    try:
+        validate_slug(project)
+    except ValueError as exc:
+        return str(exc)
+    return None
 
 
 def _format_time(ts: float | None) -> str:
@@ -59,7 +85,7 @@ def cmd_projects(args: argparse.Namespace) -> int:
 def cmd_list(args: argparse.Namespace) -> int:
     with _client(args) as client:
         resp = client.get(
-            f"/api/v1/projects/{args.project}/memories",
+            _path("api", "v1", "projects", args.project, "memories"),
             params={"limit": args.limit},
         )
         resp.raise_for_status()
@@ -85,7 +111,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 def cmd_search(args: argparse.Namespace) -> int:
     with _client(args) as client:
         resp = client.post(
-            f"/api/v1/projects/{args.project}/search",
+            _path("api", "v1", "projects", args.project, "search"),
             json={"query": args.query, "top_k": args.top_k},
         )
         resp.raise_for_status()
@@ -117,7 +143,7 @@ def cmd_add(args: argparse.Namespace) -> int:
 
     with _client(args) as client:
         resp = client.post(
-            f"/api/v1/projects/{args.project}/memories",
+            _path("api", "v1", "projects", args.project, "memories"),
             json={"text": text},
             params={"user_id": args.user},
         )
@@ -136,21 +162,67 @@ def cmd_add(args: argparse.Namespace) -> int:
 def cmd_delete(args: argparse.Namespace) -> int:
     with _client(args) as client:
         resp = client.delete(
-            f"/api/v1/projects/{args.project}/memories/{args.memory_id}"
+            _path("api", "v1", "projects", args.project, "memories", args.memory_id)
         )
         resp.raise_for_status()
-    print(f"Deleted {args.memory_id}")
+        result = resp.json()
+    if args.json:
+        _print_json(result)
+    else:
+        print(f"Deleted {args.memory_id}")
     return 0
+
+
+def _fetch_all_memories(client: httpx.Client, project: str) -> list[dict[str, Any]]:
+    """Page through GET /memories following the X-Next-Offset header."""
+    memories: list[dict[str, Any]] = []
+    path = _path("api", "v1", "projects", project, "memories")
+    offset: str | None = None
+    seen_offsets: set[str] = set()
+    while True:
+        params: dict[str, Any] = {"limit": 1000}
+        if offset is not None:
+            params["offset"] = offset
+        resp = client.get(path, params=params)
+        resp.raise_for_status()
+        memories.extend(resp.json())
+        next_offset = resp.headers.get("X-Next-Offset")
+        if not next_offset:
+            break
+        if next_offset in seen_offsets:
+            # A server bug repeating an offset must not turn into an infinite loop.
+            break
+        seen_offsets.add(next_offset)
+        offset = next_offset
+    return memories
+
+
+def _write_atomic(path: str, data: Any) -> None:
+    """Write JSON to a temp file beside the target, then rename over it, so a
+    failed export cannot destroy the previous backup."""
+    target_dir = os.path.dirname(os.path.abspath(path))
+    with tempfile.NamedTemporaryFile(
+        "w", dir=target_dir, prefix=".mem-zero-export-", suffix=".tmp", delete=False
+    ) as tmp:
+        tmp_name = tmp.name
+        try:
+            json.dump(data, tmp, indent=2)
+        except BaseException:
+            tmp.close()
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_name)
+            raise
+    try:
+        os.replace(tmp_name, path)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_name)
+        raise
 
 
 def cmd_export(args: argparse.Namespace) -> int:
     with _client(args) as client:
-        resp = client.get(
-            f"/api/v1/projects/{args.project}/memories",
-            params={"limit": 1000},
-        )
-        resp.raise_for_status()
-        memories = resp.json()
+        memories = _fetch_all_memories(client, args.project)
 
     export_data = {
         "project": args.project,
@@ -160,19 +232,42 @@ def cmd_export(args: argparse.Namespace) -> int:
     }
 
     if args.output:
-        with open(args.output, "w") as f:
-            json.dump(export_data, f, indent=2)
+        _write_atomic(args.output, export_data)
         print(f"Exported {len(memories)} memories to {args.output}")
     else:
         _print_json(export_data)
     return 0
 
 
+_IMPORT_SHAPE_ERROR = (
+    'Error: invalid import file (expected {"project": ..., "memories": [{"text": ...}, ...]})'
+)
+
+
+def _valid_import_shape(data: Any) -> bool:
+    if not isinstance(data, dict):
+        return False
+    memories = data.get("memories")
+    if not isinstance(memories, list):
+        return False
+    for mem in memories:
+        if not isinstance(mem, dict):
+            return False
+        text = mem.get("text")
+        if not isinstance(text, str) or not text:
+            return False
+    return True
+
+
 def cmd_import(args: argparse.Namespace) -> int:
     with open(args.file) as f:
         data = json.load(f)
 
-    memories = data.get("memories", [])
+    if not _valid_import_shape(data):
+        print(_IMPORT_SHAPE_ERROR, file=sys.stderr)
+        return 1
+
+    memories = data["memories"]
     if not memories:
         print("No memories found in file.")
         return 0
@@ -182,23 +277,32 @@ def cmd_import(args: argparse.Namespace) -> int:
         print("Error: no project specified (use --project or provide a file with 'project' key).",
               file=sys.stderr)
         return 1
+    if not isinstance(project, str):
+        print(_IMPORT_SHAPE_ERROR, file=sys.stderr)
+        return 1
+    slug_error = _check_slug(project)
+    if slug_error:
+        print(f"Error: {slug_error}", file=sys.stderr)
+        return 2
 
-    imported = 0
+    inputs = 0
+    stored = 0
     with _client(args) as client:
         for mem in memories:
-            text = mem.get("text", "")
-            if not text:
-                continue
             user_id = mem.get("user_id", "default")
             resp = client.post(
-                f"/api/v1/projects/{project}/memories",
-                json={"text": text, "metadata": mem.get("metadata", {})},
+                _path("api", "v1", "projects", project, "memories"),
+                json={"text": mem["text"], "metadata": mem.get("metadata", {})},
                 params={"user_id": user_id},
             )
             resp.raise_for_status()
-            imported += 1
+            inputs += 1
+            stored += int(resp.json().get("stored", 0))
 
-    print(f"Imported {imported} memories into project '{project}'.")
+    if args.json:
+        _print_json({"inputs": inputs, "stored": stored})
+    else:
+        print(f"Imported {inputs} inputs, stored {stored} facts.")
     return 0
 
 
@@ -225,7 +329,7 @@ def cmd_health(args: argparse.Namespace) -> int:
 def cmd_stats(args: argparse.Namespace) -> int:
     with _client(args) as client:
         if args.project:
-            resp = client.get(f"/api/v1/projects/{args.project}/diagnostics")
+            resp = client.get(_path("api", "v1", "projects", args.project, "diagnostics"))
         else:
             resp = client.get("/api/v1/diagnostics")
         if resp.status_code == 404:
@@ -270,7 +374,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="mem-zero",
+        prog="mem-zero-cli",
         description="CLI client for mem-zero memory server",
     )
     parser.add_argument(
@@ -279,7 +383,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--api-key", default=None,
-        help="API key for authentication",
+        help="API key for authentication (default: MEM_ZERO_API_KEY env var)",
     )
     parser.add_argument(
         "--json", action="store_true",
@@ -347,6 +451,14 @@ def main() -> int:
     if not handler:
         parser.print_help()
         return 1
+
+    # `import` resolves its project from the file, so it validates internally.
+    project = getattr(args, "project", None)
+    if project and args.command != "import":
+        slug_error = _check_slug(project)
+        if slug_error:
+            print(f"Error: {slug_error}", file=sys.stderr)
+            return 2
 
     try:
         return handler(args)
