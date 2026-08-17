@@ -26,10 +26,16 @@ python3 -m ruff check src/ tests/       # lint
 python3 -m mypy src/mem_zero            # types
 ```
 
-All three must be run before committing. The suite is fast (~7s) and fully mocked —
+All three must be run before committing.
+
+The Docker image installs the pinned set in `requirements.txt` (generated,
+do not hand-edit). After changing `pyproject.toml` dependencies, refresh it
+with `make lock` (needs `uv`: `pip install --user uv`) and commit both.
+`pyproject.toml` deliberately keeps floating ranges for library and CI-test
+consumers; only the image is locked. The suite is fast (~7s) and fully mocked —
 no network, no running Qdrant or Ollama required.
 
-pytest and ruff must be clean. mypy currently reports ~54 pre-existing errors
+pytest and ruff must be clean. mypy currently reports ~46 pre-existing errors
 (mostly `union-attr` on Qdrant payloads, which are safe because every read uses
 `with_payload=True`); treat that count as the baseline and don't add to it.
 
