@@ -53,6 +53,11 @@ class Config:
     openai_model: str = "gpt-4o-mini"
     openai_embed_model: str = "text-embedding-3-small"
 
+    # Inputs longer than this are still processed, but Ollama's num_ctx (8192)
+    # will silently truncate the prompt tail; we count and warn so the loss is
+    # visible instead of invisible. ~24k chars ~= 6k tokens leaves headroom.
+    extract_max_chars: int = 24000
+
     # Optional cross-encoder rerank of search results (fastembed, CPU).
     # Off by default: ~0.5s latency and ~200MB RAM when enabled.
     rerank_enabled: bool = False
@@ -132,6 +137,7 @@ class Config:
             ),
             openai_model=_str("OPENAI_MODEL", "gpt-4o-mini"),
             openai_embed_model=_str("OPENAI_EMBED_MODEL", "text-embedding-3-small"),
+            extract_max_chars=_int("EXTRACT_MAX_CHARS", 24000, minimum=1000),
             rerank_enabled=os.environ.get("RERANK_ENABLED", "false").lower()
             in ("1", "true", "yes"),
             rerank_model=_str("RERANK_MODEL", "Xenova/ms-marco-MiniLM-L-6-v2"),

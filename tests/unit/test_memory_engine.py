@@ -923,9 +923,11 @@ class TestCleanupText:
         result = await engine.cleanup_text("proj")
         assert result == {"cleaned": 1, "split_into_multiple": 1, "skipped": 0}
         mock_qdrant.delete.assert_called_once()
+        # Split children are written in one batched upsert now.
         texts = [
-            c.kwargs["points"][0].payload["text"]
+            pt.payload["text"]
             for c in mock_qdrant.upsert.call_args_list
+            for pt in c.kwargs["points"]
         ]
         assert texts == ["fact one", "fact two"]
 
@@ -1136,3 +1138,125 @@ class TestAddExercisesRealDedup:
         # real embedding, not a stray string.
         point = mock_qdrant.upsert.call_args.kwargs["points"][0]
         assert isinstance(point.vector, list) and len(point.vector) == 768
+
+
+class TestCleanupTextAtomicity:
+    @pytest.mark.asyncio
+    async def test_split_upserts_before_delete(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        # The last maintenance op that deleted before it stored: a mid-way
+        # failure lost the original with nothing written in its place.
+        calls: list[str] = []
+        mock_qdrant.upsert.side_effect = lambda **kw: calls.append("upsert")
+        mock_qdrant.delete.side_effect = lambda **kw: calls.append("delete")
+        pt = _pt("id-a", "{'fact one': True, 'fact two': True}", [0.1])
+        mock_qdrant.scroll.return_value = ([pt], None)
+        await engine.cleanup_text("proj")
+        assert calls == ["upsert", "delete"]
+
+    @pytest.mark.asyncio
+    async def test_split_embeds_in_one_batch(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        pt = _pt("id-a", "{'fact one': True, 'fact two': True}", [0.1])
+        mock_qdrant.scroll.return_value = ([pt], None)
+        await engine.cleanup_text("proj")
+        assert mock_backend.embed.call_count == 1
+        assert mock_backend.embed.call_args.args[0] == ["fact one", "fact two"]
+
+    @pytest.mark.asyncio
+    async def test_embed_failure_leaves_originals_untouched(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        pt = _pt("id-a", "{'fact one': True, 'fact two': True}", [0.1])
+        mock_qdrant.scroll.return_value = ([pt], None)
+        mock_backend.embed.side_effect = Exception("embed down")
+        with pytest.raises(Exception, match="embed down"):
+            await engine.cleanup_text("proj")
+        mock_qdrant.delete.assert_not_called()
+        mock_qdrant.upsert.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_follows_scroll_pages(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        # side_effect (not return_value) so a paging regression fails instead
+        # of infinite-looping.
+        page1 = [_pt("id-1", "{'a fact': True}", [0.1])]
+        page2 = [_pt("id-2", "normal text", [0.1])]
+        mock_qdrant.scroll.side_effect = [(page1, "cursor"), (page2, None)]
+        result = await engine.cleanup_text("proj")
+        assert result == {"cleaned": 1, "split_into_multiple": 0, "skipped": 1}
+        assert mock_qdrant.scroll.call_count == 2
+
+
+class TestUpdatePreservesMetadata:
+    @pytest.mark.asyncio
+    async def test_update_merges_existing_metadata(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        # Qdrant upsert replaces the payload wholesale; the old memory's tags
+        # must be carried forward, with this call's metadata winning on collisions.
+        uid = "550e8400-e29b-41d4-a716-446655440000"
+        existing_pt = MagicMock()
+        existing_pt.payload = {"created_at": 12345.0, "source": "cli", "tag": "x"}
+        mock_qdrant.retrieve.return_value = [existing_pt]
+        with (
+            patch.object(engine, "_extract_facts", new_callable=AsyncMock,
+                         return_value=["new fact"]),
+            patch.object(engine, "_dedup_fact", new_callable=AsyncMock,
+                         return_value=("update", uid, "merged text")),
+        ):
+            await engine.add("proj", "john", ["some text"], metadata={"tag": "y"})
+        payload = mock_qdrant.upsert.call_args.kwargs["points"][0].payload
+        assert payload["source"] == "cli"
+        assert payload["tag"] == "y"
+        assert payload["created_at"] == 12345.0
+
+
+class TestConsolidateGuards:
+    @pytest.mark.asyncio
+    async def test_merged_payload_keeps_metadata(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        a = _pt("id-a", "likes python", [1.0, 0.0], source="cli")
+        b = _pt("id-b", "user likes python", [0.99, 0.1], tag="dev")
+        mock_qdrant.scroll.return_value = ([a, b], None)
+        mock_backend.generate.return_value = json.dumps(
+            ["User prefers Python for backend scripting work"]
+        )
+        await engine.consolidate("proj", similarity_threshold=0.75)
+        payload = mock_qdrant.upsert.call_args.kwargs["points"][0].payload
+        assert payload["source"] == "cli"
+        assert payload["tag"] == "dev"
+
+    @pytest.mark.asyncio
+    async def test_raises_when_too_large(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import mem_zero.memory_engine as me
+        from mem_zero.memory_engine import ConsolidationTooLargeError
+        monkeypatch.setattr(me, "CONSOLIDATE_MAX_POINTS", 2)
+        pts = [_pt(f"id-{i}", f"fact {i}", [1.0, 0.0]) for i in range(3)]
+        mock_qdrant.scroll.return_value = (pts, None)
+        with pytest.raises(ConsolidationTooLargeError):
+            await engine.consolidate("proj")
+        mock_qdrant.delete.assert_not_called()
+
+
+class TestOversizedInput:
+    @pytest.mark.asyncio
+    async def test_oversized_input_counted_but_still_extracted(
+        self, config: Config, mock_backend: AsyncMock, mock_qdrant: AsyncMock,
+        tmp_path: Path,
+    ) -> None:
+        stats = DiagnosticStats(str(tmp_path / "s.json"))
+        engine = MemoryEngine(config, mock_backend, stats=stats)
+        engine._qdrant = mock_qdrant
+        mock_backend.generate.return_value = json.dumps({"facts": [FACT_A]})
+        mock_qdrant.query_points.return_value = MagicMock(points=[])
+        big = "x" * (config.extract_max_chars + 1)
+        ids = await engine.add("proj", "john", [big])
+        assert len(ids) == 1
+        assert stats._counters.get("add_memory.oversized_input") == 1

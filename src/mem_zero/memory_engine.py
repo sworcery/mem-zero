@@ -161,7 +161,17 @@ DEDUP_RELEVANT_SCORE = 0.60
 _QDRANT_TIMEOUT_S = 60
 
 
+# consolidate builds an n x n similarity matrix; past this the memory cost is
+# hundreds of MB and the projects it is designed for are far smaller. Chunking
+# was rejected: chunked clustering silently misses cross-chunk clusters.
+CONSOLIDATE_MAX_POINTS = 5000
+
+
 class EmbeddingError(Exception):
+    pass
+
+
+class ConsolidationTooLargeError(Exception):
     pass
 
 
@@ -525,6 +535,15 @@ class MemoryEngine:
 
         all_facts: list[str] = []
         for text in texts:
+            if len(text) > self._config.extract_max_chars:
+                # Not rejected — but the model context is finite, so the tail is
+                # dropped from extraction. Make that visible on the dashboard.
+                self._stats.inc("add_memory.oversized_input")
+                logger.warning(
+                    "Input of %d chars exceeds EXTRACT_MAX_CHARS=%d; the tail may "
+                    "be truncated from extraction. Send focused notes.",
+                    len(text), self._config.extract_max_chars,
+                )
             facts = await self._extract_facts(text)
             all_facts.extend(facts)
 
@@ -565,11 +584,15 @@ class MemoryEngine:
                         ids=[update_id],
                         with_payload=True,
                     )
-                    created_at = (
-                        (existing[0].payload or {}).get("created_at", now)
-                        if existing
-                        else now
-                    )
+                    old_payload = (existing[0].payload or {}) if existing else {}
+                    created_at = old_payload.get("created_at", now)
+                    # Qdrant upsert replaces the payload wholesale, so carry the
+                    # memory's existing metadata forward instead of wiping it;
+                    # this call's metadata wins on key collisions.
+                    old_meta = {
+                        k: v for k, v in old_payload.items()
+                        if k not in RESERVED_PAYLOAD_KEYS
+                    }
                     await self._qdrant.upsert(
                         collection_name=collection,
                         wait=True,
@@ -578,6 +601,7 @@ class MemoryEngine:
                                 id=update_id,
                                 vector=vector,
                                 payload={
+                                    **old_meta,
                                     **clean_meta,
                                     "text": text_to_store,
                                     "user_id": user_id,
@@ -836,8 +860,13 @@ class MemoryEngine:
         self._stats.inc("cleanup")
         self._stats.inc_project(project_slug, "cleanup")
         collection = await self._ensure_collection(project_slug)
-        cleaned = 0
-        split = 0
+
+        # Pass 1: scroll the WHOLE collection before mutating anything. Writing
+        # while scrolling let freshly-inserted split points be handed back on a
+        # later page (id-ordered scroll), and any mid-loop failure could leave a
+        # memory deleted with nothing stored in its place.
+        rewrites: list[tuple[str | int, dict[str, object], str]] = []
+        splits: list[tuple[str, dict[str, object], list[str]]] = []
         skipped = 0
         offset = None
         while True:
@@ -851,47 +880,67 @@ class MemoryEngine:
             if not points:
                 break
             for pt in points:
-                text = pt.payload.get("text", "")
-                facts = self._clean_dict_text(text)
+                payload = dict(pt.payload or {})
+                facts = self._clean_dict_text(str(payload.get("text", "")))
                 if facts is None:
                     skipped += 1
                     continue
-                payload = dict(pt.payload)
                 if len(facts) == 1:
-                    payload["text"] = facts[0]
-                    vectors = await self._timed_embed([facts[0]])
-                    await self._qdrant.upsert(
-                        collection_name=collection,
-                        wait=True,
-                        points=[PointStruct(id=pt.id, vector=vectors[0], payload=payload)],
-                    )
-                    cleaned += 1
+                    rewrites.append((pt.id, payload, facts[0]))
                 else:
-                    await self._qdrant.delete(
-                        collection_name=collection,
-                        points_selector=[str(pt.id)],
-                    )
-                    now = payload.get("updated_at", payload.get("created_at", 0))
-                    for fact in facts:
-                        new_payload = {**payload, "text": fact, "updated_at": now}
-                        vectors = await self._timed_embed([fact])
-                        point_id = str(uuid.uuid4())
-                        await self._qdrant.upsert(
-                            collection_name=collection,
-                            wait=True,
-                            points=[PointStruct(
-                                id=point_id, vector=vectors[0], payload=new_payload,
-                            )],
-                        )
-                    split += 1
-                    cleaned += 1
+                    splits.append((str(pt.id), payload, facts))
             if next_offset is None:
                 break
             offset = next_offset
+
+        if not rewrites and not splits:
+            logger.info("Cleanup %s: nothing to do, %d skipped", collection, skipped)
+            return {"cleaned": 0, "split_into_multiple": 0, "skipped": skipped}
+
+        # Pass 2: embed every replacement text in batches, BEFORE any write.
+        texts: list[str] = [fact for _, _, fact in rewrites]
+        for _, _, facts in splits:
+            texts.extend(facts)
+        vectors: list[list[float]] = []
+        for i in range(0, len(texts), 64):
+            vectors.extend(await self._timed_embed(texts[i : i + 64]))
+        vec_iter = iter(vectors)
+
+        # Pass 3: upsert everything (rewrites in place, split children as new
+        # points), then delete the split originals LAST. A failure between the
+        # two leaves recoverable duplicates instead of loss.
+        new_points: list[PointStruct] = []
+        for point_id, payload, fact in rewrites:
+            new_points.append(
+                PointStruct(id=point_id, vector=next(vec_iter),
+                            payload={**payload, "text": fact})
+            )
+        for _, payload, facts in splits:
+            now = payload.get("updated_at", payload.get("created_at", 0))
+            for fact in facts:
+                new_points.append(
+                    PointStruct(
+                        id=str(uuid.uuid4()),
+                        vector=next(vec_iter),
+                        payload={**payload, "text": fact, "updated_at": now},
+                    )
+                )
+        for i in range(0, len(new_points), 100):
+            await self._qdrant.upsert(
+                collection_name=collection, wait=True, points=new_points[i : i + 100]
+            )
+        if splits:
+            await self._qdrant.delete(
+                collection_name=collection,
+                points_selector=[old_id for old_id, _, _ in splits],
+            )
+
+        cleaned = len(rewrites) + len(splits)
         logger.info(
-            "Cleanup %s: %d cleaned, %d split, %d skipped", collection, cleaned, split, skipped
+            "Cleanup %s: %d cleaned, %d split, %d skipped",
+            collection, cleaned, len(splits), skipped,
         )
-        return {"cleaned": cleaned, "split_into_multiple": split, "skipped": skipped}
+        return {"cleaned": cleaned, "split_into_multiple": len(splits), "skipped": skipped}
 
     @staticmethod
     def _cluster_points(points: list, threshold: float) -> list[list[int]]:
@@ -899,7 +948,7 @@ class MemoryEngine:
         # blocked the event loop for seconds once collections passed a few
         # hundred points; the matrix product is milliseconds.
         n = len(points)
-        v = np.asarray([pt.vector for pt in points], dtype=np.float64)
+        v = np.asarray([pt.vector for pt in points], dtype=np.float32)
         norms = np.linalg.norm(v, axis=1, keepdims=True)
         norms[norms == 0.0] = 1.0
         sims = (v / norms) @ (v / norms).T
@@ -949,6 +998,12 @@ class MemoryEngine:
                 break
             offset = next_offset
 
+        if len(all_points) > CONSOLIDATE_MAX_POINTS:
+            raise ConsolidationTooLargeError(
+                f"Project has {len(all_points)} memories; consolidate is limited to "
+                f"{CONSOLIDATE_MAX_POINTS} because it clusters every pair in memory. "
+                "Split the project or raise the limit."
+            )
         if len(all_points) < 2:
             return {"clusters": 0, "memories_removed": 0, "memories_created": 0}
 
@@ -1019,11 +1074,22 @@ class MemoryEngine:
             earliest = min(
                 pt.payload.get("created_at", now) for pt in pts
             )
+            # Union of the cluster's non-reserved metadata (later points win on
+            # collisions) so consolidating doesn't silently drop every tag.
+            merged_meta: dict[str, object] = {}
+            for pt in pts:
+                merged_meta.update(
+                    {
+                        k: v for k, v in (pt.payload or {}).items()
+                        if k not in RESERVED_PAYLOAD_KEYS
+                    }
+                )
             new_pts = [
                 PointStruct(
                     id=str(uuid.uuid4()),
                     vector=vec,
                     payload={
+                        **merged_meta,
                         "text": fact,
                         "user_id": user_id,
                         "project": project_slug,

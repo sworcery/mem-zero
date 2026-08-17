@@ -14,7 +14,7 @@ from . import __version__
 from .backends import create_backend
 from .config import Config, validate_slug
 from .mcp_server import mcp_router, set_engine
-from .memory_engine import MemoryEngine
+from .memory_engine import ConsolidationTooLargeError, MemoryEngine
 from .models import MemoryCreate, MemoryRecord, ProjectInfo, SearchRequest
 from .stats import DiagnosticStats
 
@@ -272,6 +272,8 @@ async def consolidate_memories(
         result = await engine.consolidate(
             slug, similarity_threshold=threshold, dry_run=dry_run
         )
+    except ConsolidationTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Consolidation failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
