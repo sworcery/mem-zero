@@ -518,6 +518,12 @@ All settings are via environment variables.
 | `RERANK_MODEL` | `Xenova/ms-marco-MiniLM-L-6-v2` | fastembed cross-encoder model used when reranking |
 | `STATS_PATH` | `/mem-zero/storage/diagnostics.json` | File where diagnostics counters are persisted across restarts |
 
+> **Upgrading and want the per-backend default?** mem-zero persists your env
+> vars to `.env.saved` on the storage volume so Unraid template edits can't
+> silently blank them. That means an old explicit `EMBEDDER_DIMENSIONS=768` is
+> restored even after you clear the field. To go back to the default, also
+> delete `/mem-zero/storage/.env.saved` (it is regenerated on next start).
+
 ### Bundled backend
 
 | Variable | Default | Purpose |
