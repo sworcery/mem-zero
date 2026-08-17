@@ -14,6 +14,7 @@ def mock_response() -> MagicMock:
     resp = MagicMock()
     resp.status_code = 200
     resp.raise_for_status = MagicMock()
+    resp.headers = {}
     return resp
 
 
@@ -261,3 +262,165 @@ class TestCmdExport:
             data = json.load(f)
         assert "exported_at" in data
         assert data["count"] == 2
+
+
+def _resp(body: object, headers: dict[str, str] | None = None) -> MagicMock:
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = body
+    resp.headers = headers or {}
+    return resp
+
+
+def _run_main(argv: list[str], http: MagicMock) -> int:
+    ctx = patch("mem_zero.cli._client")
+    mock = ctx.start()
+    mock.return_value.__enter__ = MagicMock(return_value=http)
+    mock.return_value.__exit__ = MagicMock(return_value=False)
+    try:
+        with patch("sys.argv", argv):
+            return main()
+    finally:
+        ctx.stop()
+
+
+class TestExportPagination:
+    def test_follows_next_offset(self, tmp_path) -> None:
+        page1 = [{"id": "a", "text": "one"}, {"id": "b", "text": "two"}]
+        page2 = [{"id": "c", "text": "three"}]
+        http = MagicMock()
+        http.get.side_effect = [
+            _resp(page1, {"X-Next-Offset": "b"}),
+            _resp(page2),
+        ]
+        out = tmp_path / "export.json"
+        rc = _run_main(["mem-zero-cli", "export", "myproj", "-o", str(out)], http)
+        assert rc == 0
+        assert http.get.call_count == 2
+        second_params = http.get.call_args_list[1].kwargs["params"]
+        assert second_params["offset"] == "b"
+        assert second_params["limit"] == 1000
+        data = json.loads(out.read_text())
+        assert [m["id"] for m in data["memories"]] == ["a", "b", "c"]
+        assert data["count"] == 3
+
+    def test_repeated_offset_breaks_loop(self, tmp_path) -> None:
+        http = MagicMock()
+        http.get.return_value = _resp([{"id": "a", "text": "x"}], {"X-Next-Offset": "a"})
+        out = tmp_path / "export.json"
+        rc = _run_main(["mem-zero-cli", "export", "myproj", "-o", str(out)], http)
+        assert rc == 0
+        assert http.get.call_count == 2
+
+    def test_atomic_on_failure(self, tmp_path) -> None:
+        out = tmp_path / "export.json"
+        out.write_text('{"previous": true}')
+        http = MagicMock()
+        http.get.return_value = _resp([{"id": "a", "text": "x"}])
+        with patch("mem_zero.cli.json.dump", side_effect=OSError("disk full")):
+            rc = _run_main(["mem-zero-cli", "export", "myproj", "-o", str(out)], http)
+        assert rc == 1
+        assert json.loads(out.read_text()) == {"previous": True}
+        assert [p.name for p in tmp_path.iterdir()] == ["export.json"]
+
+
+class TestImportValidation:
+    def test_rejects_top_level_list(
+        self, tmp_path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        f = tmp_path / "in.json"
+        f.write_text(json.dumps([{"text": "hello"}]))
+        http = MagicMock()
+        rc = _run_main(["mem-zero-cli", "import", str(f), "--project", "p"], http)
+        assert rc == 1
+        assert "invalid import file" in capsys.readouterr().err
+        http.post.assert_not_called()
+
+    def test_rejects_memories_without_text(
+        self, tmp_path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        f = tmp_path / "in.json"
+        f.write_text(json.dumps({"project": "p", "memories": ["just a string", {"text": "ok"}]}))
+        http = MagicMock()
+        rc = _run_main(["mem-zero-cli", "import", str(f)], http)
+        assert rc == 1
+        assert "invalid import file" in capsys.readouterr().err
+        http.post.assert_not_called()
+
+    def test_reports_stored_sum(
+        self, tmp_path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        f = tmp_path / "in.json"
+        f.write_text(json.dumps({"project": "p", "memories": [{"text": "a"}, {"text": "b"}]}))
+        http = MagicMock()
+        http.post.side_effect = [_resp({"stored": 2, "ids": ["1", "2"]}), _resp({"stored": 0})]
+        rc = _run_main(["mem-zero-cli", "import", str(f)], http)
+        assert rc == 0
+        assert "Imported 2 inputs, stored 2 facts." in capsys.readouterr().out
+
+    def test_json_output(self, tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+        f = tmp_path / "in.json"
+        f.write_text(json.dumps({"project": "p", "memories": [{"text": "a"}]}))
+        http = MagicMock()
+        http.post.return_value = _resp({"stored": 1, "ids": ["1"]})
+        rc = _run_main(["mem-zero-cli", "--json", "import", str(f)], http)
+        assert rc == 0
+        assert json.loads(capsys.readouterr().out) == {"inputs": 1, "stored": 1}
+
+
+class TestClientAuth:
+    def test_env_var_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from mem_zero.cli import _client
+
+        monkeypatch.setenv("MEM_ZERO_API_KEY", "from-env")
+        args = build_parser().parse_args(["health"])
+        with _client(args) as client:
+            assert client.headers["Authorization"] == "Bearer from-env"
+
+    def test_flag_beats_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from mem_zero.cli import _client
+
+        monkeypatch.setenv("MEM_ZERO_API_KEY", "from-env")
+        args = build_parser().parse_args(["--api-key", "from-flag", "health"])
+        with _client(args) as client:
+            assert client.headers["Authorization"] == "Bearer from-flag"
+
+    def test_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from mem_zero.cli import _client
+
+        monkeypatch.delenv("MEM_ZERO_API_KEY", raising=False)
+        args = build_parser().parse_args(["health"])
+        with _client(args) as client:
+            assert client.timeout.read == 120.0
+            assert client.timeout.connect == 10.0
+            assert "Authorization" not in client.headers
+
+
+class TestSlugAndPaths:
+    def test_prog_name(self) -> None:
+        assert build_parser().prog == "mem-zero-cli"
+
+    def test_invalid_slug_exits_2_without_http(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        http = MagicMock()
+        rc = _run_main(["mem-zero-cli", "list", "Bad Slug!"], http)
+        assert rc == 2
+        assert capsys.readouterr().err.startswith("Error: Invalid project slug")
+        http.get.assert_not_called()
+
+    def test_delete_url_encodes_memory_id(self) -> None:
+        http = MagicMock()
+        http.delete.return_value = _resp({"deleted": True, "id": "x/y"})
+        rc = _run_main(["mem-zero-cli", "delete", "myproj", "x/y"], http)
+        assert rc == 0
+        url = http.delete.call_args.args[0]
+        assert url == "/api/v1/projects/myproj/memories/x%2Fy"
+
+    def test_delete_json(self, capsys: pytest.CaptureFixture[str]) -> None:
+        http = MagicMock()
+        http.delete.return_value = _resp({"deleted": True, "id": "abc"})
+        rc = _run_main(["mem-zero-cli", "--json", "delete", "myproj", "abc"], http)
+        assert rc == 0
+        assert json.loads(capsys.readouterr().out) == {"deleted": True, "id": "abc"}
