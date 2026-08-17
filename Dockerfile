@@ -9,6 +9,8 @@ ENV PIP_NO_CACHE_DIR=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+# %q in the bootstrap script must emit UTF-8 bytes verbatim, not $'\303\251'.
+ENV LANG=C.UTF-8
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -66,6 +68,10 @@ RUN find /etc/cont-init.d -type f -exec chmod +x {} \; && \
 
 ENV QDRANT__STORAGE__STORAGE_PATH=/mem-zero/storage/qdrant
 ENV QDRANT__TELEMETRY_DISABLED=true
+# Qdrant is an internal component: bind to loopback so it is unreachable from
+# outside the container even if 6333 is published. Operators who really want
+# direct access can override with -e QDRANT__SERVICE__HOST=0.0.0.0.
+ENV QDRANT__SERVICE__HOST=127.0.0.1
 # On an exit-137 during collection load, restart once in recovery mode
 # (handled by the qdrant run script) instead of crash-looping forever.
 ENV QDRANT_ALLOW_RECOVERY_MODE=true
@@ -81,7 +87,7 @@ ENV BUNDLED_EMBED_MODEL=nomic-ai/nomic-embed-text-v1.5
 ENV FASTEMBED_CACHE_PATH=/mem-zero/storage/models/fastembed
 
 VOLUME ["/mem-zero/storage"]
-EXPOSE 8765 6333
+EXPOSE 8765
 
 ENV S6_KEEP_ENV=1
 ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
