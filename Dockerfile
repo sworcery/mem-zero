@@ -56,7 +56,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=qdrant-bin /qdrant/qdrant /usr/local/bin/qdrant
 COPY --from=qdrant-bin /qdrant/config /qdrant/config
-COPY --from=qdrant-bin /qdrant/static /qdrant/static
+# /qdrant/static (the Qdrant web dashboard) is deliberately NOT copied. It is a
+# bundled JS app whose package manifests are the only Node content in this
+# image, and Trivy flags their CVEs even though no Node runtime exists here.
+# It was already unreachable: Qdrant binds loopback (below) and mem-zero serves
+# its own dashboard on 8765. Qdrant treats the folder as optional
+# (web_ui_folder() -> Option; missing dir just skips the service), and
+# ENABLE_STATIC_CONTENT=false below stops it warning about the absence.
 
 RUN set -e && \
     S6_ARCH="${TARGETARCH:-$(uname -m)}" && \
@@ -102,6 +108,8 @@ ENV QDRANT__TELEMETRY_DISABLED=true
 # outside the container even if 6333 is published. Operators who really want
 # direct access can override with -e QDRANT__SERVICE__HOST=0.0.0.0.
 ENV QDRANT__SERVICE__HOST=127.0.0.1
+# No web dashboard: the static assets are not shipped (see the COPY block above).
+ENV QDRANT__SERVICE__ENABLE_STATIC_CONTENT=false
 # On an exit-137 during collection load, restart once in recovery mode
 # (handled by the qdrant run script) instead of crash-looping forever.
 ENV QDRANT_ALLOW_RECOVERY_MODE=true
