@@ -83,6 +83,14 @@ RUN pip install --no-deps --no-index /tmp/wheels/*.whl && rm -rf /tmp/wheels
 # The traceback names the missing .so if libgomp1 was not the only one.
 RUN python3 -c "import llama_cpp, fastembed, uvicorn, qdrant_client, mem_zero; print('runtime import ok')"
 
+# Unprivileged service account; ids are remapped at boot from PUID/PGID
+# (Unraid convention 99/100). Home is deliberately non-existent so a runtime
+# `usermod -u` never walks a directory tree.
+RUN groupadd -g 911 memzero && \
+    useradd -u 911 -g memzero -M -d /nonexistent -s /usr/sbin/nologin memzero
+ENV PUID=99
+ENV PGID=100
+
 WORKDIR /app
 COPY rootfs/ /
 RUN find /etc/cont-init.d -type f -exec chmod +x {} \; && \

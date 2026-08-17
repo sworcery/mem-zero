@@ -41,6 +41,12 @@ services:
 
       # Optional: max characters sent to the LLM per extraction call
       # - EXTRACT_MAX_CHARS=24000
+
+      # Services run unprivileged (default uid 99 / gid 100, the Unraid
+      # convention). The volume is chowned to this once on first start.
+      # Set PUID=0 to run as root like older releases.
+      # - PUID=1000
+      # - PGID=1000
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

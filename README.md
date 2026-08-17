@@ -571,6 +571,15 @@ External LLMs (Ollama, OpenAI) are supported as alternatives. When using Ollama,
 
 Project isolation is enforced at the Qdrant collection level. Each project slug maps to `{prefix}_{slug}`, and all queries are scoped to a single collection.
 
+### Permissions
+
+The Qdrant and mem-zero processes run as an unprivileged account (uid 99 /
+gid 100 by default — the Unraid convention), not root. On the first start
+after upgrading, the container chowns `/mem-zero/storage` to that id once
+(a sentinel file skips the walk on later boots; it can take a while on large
+volumes). Override with `PUID` / `PGID`, or set `PUID=0` to run as root like
+older releases. Ports below 1024 can no longer be bound.
+
 </details>
 
 ## Unraid

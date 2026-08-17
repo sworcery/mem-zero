@@ -7,7 +7,11 @@
 # Not `set -e`: this script must inspect nonzero exit codes from `wait`.
 set -uo pipefail
 
-cd /qdrant
+# The path is baked into the image, but fail loudly rather than run from a
+# wrong cwd (qdrant writes its .qdrant-initialized sentinel there).
+cd /qdrant || { echo "[qdrant] cannot cd /qdrant" >&2; exit 1; }
+RUN_AS="$(cat /var/run/mem-zero.user 2>/dev/null || echo root)"
+export HOME=/mem-zero/storage
 
 QDRANT_PID=0
 _forward() { [[ "$QDRANT_PID" -gt 0 ]] && kill -"$1" "$QDRANT_PID" 2>/dev/null; }
@@ -15,7 +19,9 @@ trap '_forward TERM' SIGTERM
 trap '_forward INT' SIGINT
 
 run_qdrant() {
-    /usr/local/bin/qdrant &
+    # s6-setuidgid execs in place, so QDRANT_PID is qdrant itself and the
+    # wait/signal-forwarding logic below is unchanged.
+    /command/s6-setuidgid "$RUN_AS" /usr/local/bin/qdrant &
     QDRANT_PID=$!
     local code
     wait "$QDRANT_PID"

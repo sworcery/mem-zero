@@ -35,6 +35,8 @@ env_vars=(
     DASHBOARD_PASS
     DIAGNOSTICS_ENABLED
     STATS_PATH
+    PUID
+    PGID
     HOST
     PORT
 )

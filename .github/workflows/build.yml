@@ -58,9 +58,7 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q shellcheck
 
       - name: shellcheck
-        # SC2164 excluded: services.d/qdrant/run does `cd /qdrant` without
-        # `|| exit` (pre-existing, harmless: the path is baked into the image).
-        run: shellcheck -s bash -S warning -e SC2164 rootfs/etc/cont-init.d/*.sh rootfs/etc/services.d/*/run
+        run: shellcheck -s bash -S warning rootfs/etc/cont-init.d/*.sh rootfs/etc/services.d/*/run
 
       - name: bash -n
         run: |

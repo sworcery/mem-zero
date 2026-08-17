@@ -3,6 +3,11 @@ set -euo pipefail
 
 # Pick up any paths 01-bootstrap.sh restored (Unraid can blank template fields).
 [[ -f /var/run/mem-zero.env ]] && source /var/run/mem-zero.env
+# Downloads run as the service account so the files it must later read/write
+# are owned correctly; HOME is pointed at the volume for stray ~/.cache writers.
+RUN_AS="$(cat /var/run/mem-zero.user 2>/dev/null || echo root)"
+export HOME=/mem-zero/storage
+as_user() { /command/s6-setuidgid "$RUN_AS" "$@"; }
 
 MODEL_DIR="/mem-zero/storage/models"
 GGUF_PATH="${BUNDLED_MODEL_PATH:-$MODEL_DIR/qwen2.5-3b-instruct-q4_k_m.gguf}"
@@ -25,15 +30,15 @@ if [[ -z "$BACKEND" ]]; then
     fi
 fi
 
-mkdir -p "$MODEL_DIR"
+as_user mkdir -p "$MODEL_DIR"
 
 if [[ ! -f "$GGUF_PATH" ]]; then
     echo "[mem-zero] Downloading bundled LLM model (this only happens once)..."
     # --speed-limit/--speed-time abort a silently stalled transfer, which
     # would otherwise hang cont-init (and the whole container) forever.
-    if curl -fSL --retry 3 --connect-timeout 30 --speed-limit 10240 --speed-time 60 \
+    if as_user curl -fSL --retry 3 --connect-timeout 30 --speed-limit 10240 --speed-time 60 \
             -o "${GGUF_PATH}.tmp" "$GGUF_URL"; then
-        mv "${GGUF_PATH}.tmp" "$GGUF_PATH"
+        as_user mv "${GGUF_PATH}.tmp" "$GGUF_PATH"
         echo "[mem-zero] LLM model downloaded: $GGUF_PATH"
     else
         rm -f "${GGUF_PATH}.tmp"
@@ -50,7 +55,7 @@ fi
 export FASTEMBED_CACHE_PATH="$FASTEMBED_CACHE"
 if [[ ! -d "$FASTEMBED_CACHE" ]] || [[ -z "$(ls -A "$FASTEMBED_CACHE" 2>/dev/null)" ]]; then
     echo "[mem-zero] Downloading bundled embedding model (this only happens once)..."
-    if /opt/venv/bin/python3 -c "from fastembed import TextEmbedding; TextEmbedding('$EMBED_MODEL')"; then
+    if as_user /opt/venv/bin/python3 -c "from fastembed import TextEmbedding; TextEmbedding('$EMBED_MODEL')"; then
         echo "[mem-zero] Embedding model downloaded to: $FASTEMBED_CACHE"
     elif [[ "$BACKEND" == "bundled" ]]; then
         echo "[mem-zero] ERROR: could not download the required embedding model" >&2

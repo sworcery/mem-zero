@@ -16,5 +16,9 @@ if ! curl -fsS "http://127.0.0.1:6333/readyz" >/dev/null 2>&1; then
     exit 1
 fi
 
+RUN_AS="$(cat /var/run/mem-zero.user 2>/dev/null || echo root)"
+export HOME=/mem-zero/storage
 cd /app
-exec /opt/venv/bin/uvicorn mem_zero.server:app --host "${HOST:-0.0.0.0}" --port "${PORT:-8765}"
+# /var/run/mem-zero.env (mode 600) was sourced above as root; s6-setuidgid
+# passes the environment through to the unprivileged service.
+exec /command/s6-setuidgid "$RUN_AS" /opt/venv/bin/uvicorn mem_zero.server:app --host "${HOST:-0.0.0.0}" --port "${PORT:-8765}"
