@@ -1718,9 +1718,9 @@
         <div class="cfg-card-title">Connection Status</div>
         <div id="cfg-conn-list">
           <div class="conn-row">
-            <span class="conn-dot" id="conn-ollama"></span>
-            <span class="conn-name">Ollama</span>
-            <span class="conn-status" id="conn-ollama-status">checking…</span>
+            <span class="conn-dot" id="conn-llm"></span>
+            <span class="conn-name" id="conn-llm-name">LLM</span>
+            <span class="conn-status" id="conn-llm-status">checking…</span>
           </div>
           <div class="conn-row">
             <span class="conn-dot" id="conn-qdrant"></span>
@@ -1728,9 +1728,9 @@
             <span class="conn-status" id="conn-qdrant-status">checking…</span>
           </div>
           <div class="conn-row">
-            <span class="conn-dot" id="conn-bundled"></span>
-            <span class="conn-name">Bundled LLM</span>
-            <span class="conn-status" id="conn-bundled-status">—</span>
+            <span class="conn-dot" id="conn-fallback"></span>
+            <span class="conn-name">Fallback</span>
+            <span class="conn-status" id="conn-fallback-status">—</span>
           </div>
         </div>
       </div>
@@ -1806,6 +1806,7 @@
     perfHistory:   null, // loaded below from localStorage
     opsLog:        [],  // recent ops for display
     currentTab:    'overview',
+    apiKey:        sessionStorage.getItem('mz_api_key') || null,
   };
 
   const PERF_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -1921,7 +1922,7 @@
   }
 
   function mcpUrl(slug, userId) {
-    return `http://${location.host}/mcp/${slug}/http/${userId}`;
+    return `${location.origin}/mcp/${slug}/http/${userId}`;
   }
 
   function copyText(text) {
@@ -1938,13 +1939,35 @@
   }
 
   // ─── API ────────────────────────────────────────────────────────────────────
-  async function apiFetch(method, path, body) {
+  function setApiKey(key) {
+    S.apiKey = key || null;
+    if (key) sessionStorage.setItem('mz_api_key', key);
+    else sessionStorage.removeItem('mz_api_key');
+  }
+
+  async function apiFetch(method, path, body, _retried) {
     const opts = { method, headers: {} };
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
+    if (S.apiKey) opts.headers['Authorization'] = 'Bearer ' + S.apiKey;
     const res = await fetch(path, opts);
+    if (res.status === 401 && (res.headers.get('WWW-Authenticate') || '').startsWith('Bearer')) {
+      if (!_retried) {
+        const key = window.prompt('This mem-zero server requires an API key. Paste it to continue:');
+        if (key !== null && key.trim()) {
+          setApiKey(key.trim());
+          return apiFetch(method, path, body, true);
+        }
+      }
+      setApiKey(null);
+      $('status-dot').className  = 'status-dot err';
+      $('status-text').textContent = 'API key required';
+      const err = new Error('API key required');
+      err.status = 401;
+      throw err;
+    }
     if (!res.ok) {
       let detail = res.statusText;
       try { const j = await res.json(); detail = j.detail || JSON.stringify(j); } catch (_) {}
@@ -2489,7 +2512,7 @@
     if (llm) llm.className = 'conn-dot ' + (svc.llm ? 'ok' : (S.health === 'ok' ? 'ok' : 'err'));
     const info = $('ov-embed-info');
     if (info && cfgCache) {
-      const model = cfgCache.embedder_model || cfgCache.openai_embed_model || '—';
+      const model = cfgCache.embedder_model || cfgCache.openai_embed_model || cfgCache.bundled_embed_model || '—';
       const dims = cfgCache.embedding_dimensions || '—';
       info.textContent = model + ' (' + dims + 'd)';
     }
@@ -2820,9 +2843,8 @@
 
     // Connection status from health data
     const services = (h && h.services) || {};
-    const ollamaOk  = services.ollama  !== undefined ? !!services.ollama  : null;
+    const llmOk     = services.llm     !== undefined ? !!services.llm     : null;
     const qdrantOk  = services.qdrant  !== undefined ? !!services.qdrant  : null;
-    const bundledOk = services.bundled !== undefined ? !!services.bundled : null;
 
     function setConn(dotId, statusId, ok) {
       const dot = $(dotId);
@@ -2839,16 +2861,31 @@
       }
     }
 
-    setConn('conn-ollama',   'conn-ollama-status',   ollamaOk);
-    setConn('conn-qdrant',   'conn-qdrant-status',   qdrantOk);
-    setConn('conn-bundled',  'conn-bundled-status',  bundledOk);
-
     // Backend config card
     const cfg = cfgCache || {};
+    const embedModel = cfg.embedder_model || cfg.openai_embed_model || cfg.bundled_embed_model;
+
+    setConn('conn-llm',      'conn-llm-status',      llmOk);
+    setConn('conn-qdrant',   'conn-qdrant-status',   qdrantOk);
+    $('conn-llm-name').textContent = 'LLM' + (cfg.llm_backend ? ' (' + cfg.llm_backend + ')' : '');
+    {
+      const fbDot = $('conn-fallback');
+      const fbLbl = $('conn-fallback-status');
+      if (!cfg.fallback_backend) {
+        fbDot.className = 'conn-dot';
+        fbLbl.textContent = 'none';
+      } else if (cfg.degraded) {
+        fbDot.className = 'conn-dot err';
+        fbLbl.textContent = cfg.fallback_backend + ' (active)';
+      } else {
+        fbDot.className = 'conn-dot ok';
+        fbLbl.textContent = cfg.fallback_backend + ' (standby)';
+      }
+    }
     const backendRows = [
       ['LLM Backend',   cfg.llm_backend    || '—'],
       ['Chat Model',    cfg.llm_model || cfg.openai_model || '—'],
-      ['Embed Model',   cfg.embedding_model || '—'],
+      ['Embed Model',   embedModel || '—'],
       ['Embed Dims',    cfg.embedding_dimensions || '—'],
       ['Fallback',      cfg.fallback_backend || 'none'],
     ];
@@ -2872,13 +2909,13 @@
       </div>
       <div class="conn-row">
         <span class="conn-name" style="color:var(--faint);font-size:12px">Embed model</span>
-        <span class="conn-status" style="color:var(--dim);font-size:12px">${esc(cfg.embedding_model || '—')}</span>
+        <span class="conn-status" style="color:var(--dim);font-size:12px">${esc(embedModel || '—')}</span>
       </div>
     `;
 
     // Auth
-    const apiKeyOn  = cfg.api_key_enabled  !== undefined ? cfg.api_key_enabled  : (cfg.api_key  ? true : undefined);
-    const dashAuthOn = cfg.dashboard_auth_enabled !== undefined ? cfg.dashboard_auth_enabled : undefined;
+    const apiKeyOn   = cfg.api_key_enabled;
+    const dashAuthOn = cfg.dashboard_auth_enabled;
     let authHtml = '';
     if (apiKeyOn !== undefined) {
       authHtml += `<span class="auth-badge ${apiKeyOn ? 'auth-on' : 'auth-off'}">API Key ${apiKeyOn ? 'ON' : 'OFF'}</span>`;
@@ -2892,7 +2929,8 @@
     const MASKED = ['api_key','password','secret','token','key'];
     const tbody  = $('cfg-env-body');
     const envEntries = Object.entries(cfg).filter(([k]) => !['llm_backend','llm_model','openai_model',
-      'embedding_model','embedding_dimensions','fallback_backend','bundled_model_path'].includes(k));
+      'embedder_model','openai_embed_model','bundled_embed_model','embedding_dimensions',
+      'fallback_backend','bundled_model_path','api_key_enabled','dashboard_auth_enabled'].includes(k));
     if (envEntries.length) {
       tbody.innerHTML = envEntries.map(([k, v]) => {
         const isSensitive = MASKED.some(m => k.toLowerCase().includes(m));

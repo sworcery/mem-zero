@@ -21,13 +21,26 @@ services:
       # - OPENAI_BASE_URL=https://api.openai.com/v1
       # - OPENAI_MODEL=gpt-4o-mini
 
-      - EMBEDDER_DIMENSIONS=768
+      # Embedding dimensions are optional. Unset = per-backend default
+      # (768 for Ollama/bundled, the model's native size for OpenAI, e.g.
+      # 1536 for text-embedding-3-small). Only set to override; leave unset for OpenAI.
+      # - EMBEDDER_DIMENSIONS=768
 
       # API key for MCP and REST endpoints (generate with: openssl rand -hex 32)
       # - API_KEY=your-api-key-here
 
       # - DASHBOARD_USER=admin
       # - DASHBOARD_PASS=changeme
+
+      # Optional: performance/accuracy metrics on the dashboard
+      # - DIAGNOSTICS_ENABLED=true
+
+      # Optional: cross-encoder rerank of search results (CPU, downloads a small model)
+      # - RERANK_ENABLED=true
+      # - RERANK_MODEL=Xenova/ms-marco-MiniLM-L-6-v2
+
+      # Optional: max characters sent to the LLM per extraction call
+      # - EXTRACT_MAX_CHARS=24000
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
