@@ -7,6 +7,8 @@ import math
 import re
 import time
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import numpy as np
 from qdrant_client import AsyncQdrantClient
@@ -175,6 +177,14 @@ class ConsolidationTooLargeError(Exception):
     pass
 
 
+class DimensionMismatchError(Exception):
+    """An existing collection's vector size differs from the configured embedder."""
+
+
+class MaintenanceInProgressError(Exception):
+    """A reembed/cleanup/consolidate is already running for this collection."""
+
+
 class LLMError(Exception):
     pass
 
@@ -217,19 +227,32 @@ class MemoryEngine:
             )
 
         self._ensured_collections: set[str] = set()
+        # Collections known to have the WRONG vector size for the configured
+        # embedder; re-raise instantly instead of paying a Qdrant round trip.
+        self._dimension_mismatch: set[str] = set()
         self._lock = asyncio.Lock()
+        # One lock per collection so overlapping reembed/cleanup/consolidate on
+        # the same project can't both scroll and both delete.
+        self._maintenance_locks: dict[str, asyncio.Lock] = {}
         self._reranker: object | None = None
         self._reranker_lock = asyncio.Lock()
+        # First rerank load failure is cached so we don't re-attempt a
+        # multi-second ONNX download on EVERY search afterwards.
+        self._reranker_error: str | None = None
 
     async def close(self) -> None:
         await self._backend.close()
         await self._qdrant.close()
 
-    async def _ensure_collection(self, project_slug: str) -> str:
+    async def _ensure_collection(
+        self, project_slug: str, *, check_dimensions: bool = True
+    ) -> str:
         name = self._config.collection_name(project_slug)
 
         if name in self._ensured_collections:
             return name
+        if check_dimensions and name in self._dimension_mismatch:
+            raise DimensionMismatchError(self._dimension_mismatch_message(name, project_slug))
 
         async with self._lock:
             if name in self._ensured_collections:
@@ -247,9 +270,50 @@ class MemoryEngine:
                     ),
                 )
                 logger.info("Created collection %s", name)
+            elif check_dimensions:
+                # An existing collection built under a different embedder used
+                # to fail only at request time with a raw Qdrant dim error and
+                # no hint that /reembed is the fix.
+                info = await self._qdrant.get_collection(name)
+                size = self._collection_vector_size(info)
+                if size is not None and size != self._backend.embedding_dimensions:
+                    self._dimension_mismatch.add(name)
+                    raise DimensionMismatchError(
+                        self._dimension_mismatch_message(name, project_slug, size)
+                    )
 
             self._ensured_collections.add(name)
             return name
+
+    @staticmethod
+    def _collection_vector_size(info: object) -> int | None:
+        # Defensive attribute walk: named-vector configs and test doubles don't
+        # have a plain int here, and a guard failure must never break requests.
+        try:
+            size = info.config.params.vectors.size  # type: ignore[attr-defined]
+        except AttributeError:
+            return None
+        return size if isinstance(size, int) else None
+
+    def _dimension_mismatch_message(
+        self, name: str, project_slug: str, size: int | None = None
+    ) -> str:
+        have = f"{size}-dim" if size is not None else "a different size of"
+        return (
+            f"Collection {name} stores {have} vectors but the configured embedder "
+            f"produces {self._backend.embedding_dimensions}-dim vectors. Run "
+            f"POST /api/v1/projects/{project_slug}/reembed to migrate it."
+        )
+
+    @asynccontextmanager
+    async def _maintenance(self, collection: str) -> AsyncIterator[None]:
+        lock = self._maintenance_locks.setdefault(collection, asyncio.Lock())
+        if lock.locked():
+            raise MaintenanceInProgressError(
+                f"A maintenance operation is already running for {collection}"
+            )
+        async with lock:
+            yield
 
     async def health_check(self) -> bool:
         await self._qdrant.get_collections()
@@ -281,11 +345,19 @@ class MemoryEngine:
             )
             self._stats.inc("embed")
             self._stats.inc("embed.texts", len(texts))
+            expected = self._backend.embedding_dimensions
             for i, vec in enumerate(result):
                 if not any(vec):
                     self._stats.inc("embed.zero_vectors")
                     raise EmbeddingError(
                         f"Embedding model returned zero vector for text: {texts[i][:80]!r}"
+                    )
+                if len(vec) != expected:
+                    # Would be rejected (or silently mis-stored) by Qdrant later.
+                    self._stats.inc("embed.bad_dimensions")
+                    raise EmbeddingError(
+                        f"Embedding model returned {len(vec)}-dim vector, expected "
+                        f"{expected}; check EMBEDDER_DIMENSIONS matches EMBEDDER_MODEL"
                     )
             return result
         except EmbeddingError as exc:
@@ -652,7 +724,18 @@ class MemoryEngine:
                     def _load() -> object:
                         from fastembed.rerank.cross_encoder import TextCrossEncoder
 
-                        return TextCrossEncoder(model_name=self._config.rerank_model)
+                        name = self._config.rerank_model
+                        supported = {
+                            m["model"] for m in TextCrossEncoder.list_supported_models()
+                        }
+                        # Fail fast with a useful message instead of a network
+                        # error deep inside an ONNX download.
+                        if supported and name not in supported:
+                            raise ValueError(
+                                f"RERANK_MODEL {name!r} is not a fastembed cross-encoder; "
+                                f"supported: {', '.join(sorted(supported))}"
+                            )
+                        return TextCrossEncoder(model_name=name)
 
                     logger.info("Loading reranker %s", self._config.rerank_model)
                     self._reranker = await asyncio.to_thread(_load)
@@ -662,6 +745,11 @@ class MemoryEngine:
         self, query: str, results: list[MemoryRecord], top_k: int
     ) -> list[MemoryRecord]:
         t0 = time.monotonic()
+        if self._reranker_error is not None:
+            # Already failed once this process; don't re-attempt the load per
+            # search (a bad model name used to trigger a download attempt on
+            # every single query, silently, forever).
+            return results[:top_k]
         try:
             reranker = await self._get_reranker()
             texts = [r.text for r in results]
@@ -676,8 +764,16 @@ class MemoryEngine:
             # Rerank is best-effort; cosine ordering is a fine fallback. The
             # scoring loop is inside the try so a count mismatch or an extreme
             # logit can't escape as a 500.
+            if self._reranker is None:
+                # Load failed: remember it so we stop retrying every search.
+                self._reranker_error = str(exc)
+                logger.error(
+                    "Reranker failed to load (%s); reranking disabled for this "
+                    "process, falling back to vector order", exc,
+                )
+            else:
+                logger.warning("Rerank failed (%s), using vector order", exc)
             self._stats.record_error("rerank", str(exc))
-            logger.warning("Rerank failed (%s), using vector order", exc)
             return results[:top_k]
         results.sort(key=lambda r: r.score or 0.0, reverse=True)
         self._stats.record_latency("rerank", (time.monotonic() - t0) * 1000)
@@ -791,7 +887,13 @@ class MemoryEngine:
         self._stats.inc("reembed")
         self._stats.inc_project(project_slug, "reembed")
         self._stats.record_activity(project_slug)
-        collection = await self._ensure_collection(project_slug)
+        # reembed IS the migration path for a dimension mismatch, so it must
+        # not be blocked by the guard; it recreates the collection below.
+        collection = await self._ensure_collection(project_slug, check_dimensions=False)
+        async with self._maintenance(collection):
+            return await self._reembed_all_locked(project_slug, collection)
+
+    async def _reembed_all_locked(self, project_slug: str, collection: str) -> int:
 
         info = await self._qdrant.get_collection(collection)
         current_dims = self._backend.embedding_dimensions
@@ -837,7 +939,13 @@ class MemoryEngine:
             )
             await self._qdrant.delete_collection(collection)
             self._ensured_collections.discard(collection)
-            collection = await self._ensure_collection(project_slug)
+            self._dimension_mismatch.discard(collection)
+            # Recreate WITHOUT the dimension check: we just deleted the old
+            # collection, and a stale get_collections listing would otherwise
+            # make the migration path trip over its own guard.
+            collection = await self._ensure_collection(
+                project_slug, check_dimensions=False
+            )
 
         for i in range(0, len(new_points), 100):
             await self._qdrant.upsert(
@@ -866,6 +974,10 @@ class MemoryEngine:
         self._stats.inc_project(project_slug, "cleanup")
         self._stats.record_activity(project_slug)
         collection = await self._ensure_collection(project_slug)
+        async with self._maintenance(collection):
+            return await self._cleanup_text_locked(collection)
+
+    async def _cleanup_text_locked(self, collection: str) -> dict[str, int]:
 
         # Pass 1: scroll the WHOLE collection before mutating anything. Writing
         # while scrolling let freshly-inserted split points be handed back on a
@@ -987,7 +1099,18 @@ class MemoryEngine:
         self._stats.inc_project(project_slug, "consolidate")
         self._stats.record_activity(project_slug)
         collection = await self._ensure_collection(project_slug)
+        async with self._maintenance(collection):
+            return await self._consolidate_locked(
+                project_slug, collection, similarity_threshold, dry_run
+            )
 
+    async def _consolidate_locked(
+        self,
+        project_slug: str,
+        collection: str,
+        similarity_threshold: float,
+        dry_run: bool,
+    ) -> dict[str, object]:
         all_points = []
         offset = None
         while True:

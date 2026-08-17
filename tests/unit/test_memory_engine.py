@@ -1329,3 +1329,156 @@ class TestMaintenanceRecordsActivity:
         assert await engine.delete_project("proj") is True
         assert stats._counters.get("delete_project") == 1
         assert "proj" not in stats._project_counters
+
+
+class TestDimensionGuard:
+    @staticmethod
+    def _existing(mock_qdrant: AsyncMock, size: int) -> None:
+        col = MagicMock()
+        col.name = "test_proj"
+        mock_qdrant.get_collections.return_value = MagicMock(collections=[col])
+        info = MagicMock()
+        info.config.params.vectors.size = size
+        mock_qdrant.get_collection.return_value = info
+
+    @pytest.mark.asyncio
+    async def test_mismatch_raises_with_reembed_hint(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        from mem_zero.memory_engine import DimensionMismatchError
+        self._existing(mock_qdrant, 512)  # backend is 768
+        with pytest.raises(DimensionMismatchError, match="reembed"):
+            await engine._ensure_collection("proj")
+
+    @pytest.mark.asyncio
+    async def test_mismatch_is_cached_without_second_qdrant_call(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        from mem_zero.memory_engine import DimensionMismatchError
+        self._existing(mock_qdrant, 512)
+        with pytest.raises(DimensionMismatchError):
+            await engine._ensure_collection("proj")
+        calls = mock_qdrant.get_collection.call_count
+        with pytest.raises(DimensionMismatchError):
+            await engine._ensure_collection("proj")
+        assert mock_qdrant.get_collection.call_count == calls  # no round trip
+
+    @pytest.mark.asyncio
+    async def test_matching_size_passes(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        self._existing(mock_qdrant, 768)
+        assert await engine._ensure_collection("proj") == "test_proj"
+
+    @pytest.mark.asyncio
+    async def test_reembed_bypasses_guard(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        # reembed IS the migration path; the guard must not block it.
+        self._existing(mock_qdrant, 512)
+        mock_qdrant.scroll.return_value = ([], None)
+        count = await engine.reembed_all("proj")
+        assert count == 0
+        mock_qdrant.delete_collection.assert_called_once()  # recreated at 768
+        assert "test_proj" not in engine._dimension_mismatch
+
+
+class TestEmbedLengthCheck:
+    @pytest.mark.asyncio
+    async def test_wrong_vector_length_raises(
+        self, engine: MemoryEngine, mock_backend: AsyncMock
+    ) -> None:
+        from mem_zero.memory_engine import EmbeddingError
+        mock_backend.embed.side_effect = lambda texts: [[0.1] * 512 for _ in texts]
+        with pytest.raises(EmbeddingError, match="512-dim"):
+            await engine._timed_embed(["x"])
+
+
+class TestMaintenanceLock:
+    @pytest.mark.asyncio
+    async def test_concurrent_consolidate_second_raises(
+        self, engine: MemoryEngine, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        import asyncio
+
+        from mem_zero.memory_engine import MaintenanceInProgressError
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_scroll(**kw):  # first caller parks inside the lock
+            started.set()
+            await release.wait()
+            return ([], None)
+
+        mock_qdrant.scroll.side_effect = slow_scroll
+        first = asyncio.create_task(engine.consolidate("proj"))
+        await started.wait()
+        with pytest.raises(MaintenanceInProgressError):
+            await engine.consolidate("proj")
+        release.set()
+        await first  # first completes normally
+
+    @pytest.mark.asyncio
+    async def test_lock_released_after_error(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        mock_qdrant.scroll.side_effect = RuntimeError("qdrant down")
+        with pytest.raises(RuntimeError):
+            await engine.cleanup_text("proj")
+        # A second call must not see a stuck lock.
+        mock_qdrant.scroll.side_effect = None
+        mock_qdrant.scroll.return_value = ([], None)
+        result = await engine.cleanup_text("proj")
+        assert result["cleaned"] == 0
+
+    @pytest.mark.asyncio
+    async def test_different_projects_do_not_block(
+        self, engine: MemoryEngine, mock_qdrant: AsyncMock
+    ) -> None:
+        import asyncio
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_scroll(**kw):
+            if kw["collection_name"] == "test_a":
+                started.set()
+                await release.wait()
+            return ([], None)
+
+        mock_qdrant.scroll.side_effect = slow_scroll
+        first = asyncio.create_task(engine.consolidate("a"))
+        await started.wait()
+        # Project b is independent: proceeds while a holds its own lock.
+        result = await engine.consolidate("b")
+        assert result["clusters"] == 0
+        release.set()
+        await first
+
+
+class TestRerankModelValidation:
+    @pytest.mark.asyncio
+    async def test_load_failure_cached_no_retry_per_search(
+        self, mock_backend: AsyncMock, mock_qdrant: AsyncMock
+    ) -> None:
+        cfg = Config(collection_prefix="test", rerank_enabled=True,
+                     rerank_model="not-a-real-model")
+        eng = MemoryEngine(cfg, mock_backend)
+        eng._qdrant = mock_qdrant
+        recs = [
+            MemoryRecord(id="a", text="a", user_id="u", created_at=0, updated_at=0, score=0.6),
+            MemoryRecord(id="b", text="b", user_id="u", created_at=0, updated_at=0, score=0.5),
+        ]
+        loads = 0
+
+        async def failing_load() -> object:
+            nonlocal loads
+            loads += 1
+            raise ValueError("RERANK_MODEL 'not-a-real-model' is not a fastembed cross-encoder")
+
+        with patch.object(eng, "_get_reranker", side_effect=failing_load):
+            out1 = await eng._rerank("q", list(recs), 2)
+            out2 = await eng._rerank("q", list(recs), 2)
+        assert [r.id for r in out1] == ["a", "b"]  # vector order fallback
+        assert [r.id for r in out2] == ["a", "b"]
+        assert loads == 1  # second search short-circuited
+        assert eng._reranker_error is not None

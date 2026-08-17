@@ -14,7 +14,12 @@ from . import __version__
 from .backends import create_backend
 from .config import Config, validate_slug
 from .mcp_server import mcp_router, set_engine
-from .memory_engine import ConsolidationTooLargeError, MemoryEngine
+from .memory_engine import (
+    ConsolidationTooLargeError,
+    DimensionMismatchError,
+    MaintenanceInProgressError,
+    MemoryEngine,
+)
 from .models import MemoryCreate, MemoryRecord, ProjectInfo, SearchRequest
 from .stats import DiagnosticStats
 
@@ -207,6 +212,8 @@ async def create_memory(
     slug = _validated_slug(slug)
     try:
         ids = await engine.add(slug, user_id, [body.text], body.metadata or None)
+    except DimensionMismatchError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to add memory")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -219,7 +226,10 @@ async def search_memories(
     slug: str = Path(...),
 ) -> list[MemoryRecord]:
     slug = _validated_slug(slug)
-    return await engine.search(slug, body.query, top_k=body.top_k)
+    try:
+        return await engine.search(slug, body.query, top_k=body.top_k)
+    except DimensionMismatchError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.delete("/api/v1/projects/{slug}/memories/{memory_id}")
@@ -253,6 +263,8 @@ async def reembed_memories(slug: str = Path(...)) -> dict[str, int]:
     slug = _validated_slug(slug)
     try:
         count = await engine.reembed_all(slug)
+    except MaintenanceInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Re-embed failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -264,6 +276,8 @@ async def cleanup_memories(slug: str = Path(...)) -> dict[str, int]:
     slug = _validated_slug(slug)
     try:
         result = await engine.cleanup_text(slug)
+    except (MaintenanceInProgressError, DimensionMismatchError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Cleanup failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -283,6 +297,8 @@ async def consolidate_memories(
         )
     except ConsolidationTooLargeError as exc:
         raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except (MaintenanceInProgressError, DimensionMismatchError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Consolidation failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
