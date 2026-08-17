@@ -1260,3 +1260,72 @@ class TestOversizedInput:
         ids = await engine.add("proj", "john", [big])
         assert len(ids) == 1
         assert stats._counters.get("add_memory.oversized_input") == 1
+
+
+class TestSearchScoreRecording:
+    @pytest.mark.asyncio
+    async def test_dedup_candidates_do_not_record_search_scores(
+        self, config: Config, mock_backend: AsyncMock, mock_qdrant: AsyncMock,
+        tmp_path: Path,
+    ) -> None:
+        # Dedup runs a search for every fact; its candidate cosines were
+        # swamping the dashboard's "search quality" numbers.
+        stats = DiagnosticStats(str(tmp_path / "s.json"))
+        engine = MemoryEngine(config, mock_backend, stats=stats)
+        engine._qdrant = mock_qdrant
+        hit = MagicMock(id="550e8400-e29b-41d4-a716-446655440000",
+                        payload={"text": "x", "user_id": "u"}, score=0.9)
+        mock_qdrant.query_points.return_value = MagicMock(points=[hit])
+        mock_backend.generate.side_effect = [
+            json.dumps({"facts": [FACT_A]}),  # extraction
+            '{"action": "add"}',              # dedup
+        ]
+        await engine.add("proj", "john", ["some text"])
+        assert stats._search_score_count == 0
+
+    @pytest.mark.asyncio
+    async def test_user_search_records_scores_once(
+        self, config: Config, mock_backend: AsyncMock, mock_qdrant: AsyncMock,
+        tmp_path: Path,
+    ) -> None:
+        stats = DiagnosticStats(str(tmp_path / "s.json"))
+        engine = MemoryEngine(config, mock_backend, stats=stats)
+        engine._qdrant = mock_qdrant
+        hit = MagicMock(id="550e8400-e29b-41d4-a716-446655440000",
+                        payload={"text": "x", "user_id": "u"}, score=0.7)
+        mock_qdrant.query_points.return_value = MagicMock(points=[hit])
+        await engine.search("proj", "query")
+        assert stats._search_score_count == 1
+
+
+class TestMaintenanceRecordsActivity:
+    @pytest.mark.asyncio
+    async def test_reembed_records_activity(
+        self, config: Config, mock_backend: AsyncMock, mock_qdrant: AsyncMock,
+        tmp_path: Path,
+    ) -> None:
+        stats = DiagnosticStats(str(tmp_path / "s.json"))
+        engine = MemoryEngine(config, mock_backend, stats=stats)
+        engine._qdrant = mock_qdrant
+        info = MagicMock()
+        info.config.params.vectors.size = 768
+        mock_qdrant.get_collection.return_value = info
+        mock_qdrant.scroll.return_value = ([], None)
+        await engine.reembed_all("proj")
+        assert stats.get_last_activity("proj") is not None
+
+    @pytest.mark.asyncio
+    async def test_delete_project_counts_and_forgets(
+        self, config: Config, mock_backend: AsyncMock, mock_qdrant: AsyncMock,
+        tmp_path: Path,
+    ) -> None:
+        stats = DiagnosticStats(str(tmp_path / "s.json"))
+        engine = MemoryEngine(config, mock_backend, stats=stats)
+        engine._qdrant = mock_qdrant
+        stats.inc_project("proj", "add_memory")
+        col = MagicMock()
+        col.name = "test_proj"
+        mock_qdrant.get_collections.return_value = MagicMock(collections=[col])
+        assert await engine.delete_project("proj") is True
+        assert stats._counters.get("delete_project") == 1
+        assert "proj" not in stats._project_counters

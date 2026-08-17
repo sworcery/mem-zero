@@ -509,9 +509,6 @@ class MemoryEngine:
             )
             for hit in results
         ]
-        scores = [r.score for r in records if r.score is not None]
-        if scores:
-            self._stats.record_search_scores(scores)
         return records
 
     async def add(
@@ -709,6 +706,13 @@ class MemoryEngine:
             )
         else:
             results = await self.search_in_collection(collection, query, top_k=top_k)
+        # Recorded here, not in search_in_collection: dedup calls that helper
+        # for every fact, and its candidate cosines were swamping the
+        # dashboard's "search quality" numbers. This is user-query relevance
+        # only, and it reflects rerank scores when rerank is on.
+        scores = [r.score for r in results if r.score is not None]
+        if scores:
+            self._stats.record_search_scores(scores)
         if not results:
             self._stats.inc("search.zero_results")
         self._stats.record_latency("search", (time.monotonic() - t0) * 1000)
@@ -786,6 +790,7 @@ class MemoryEngine:
     async def reembed_all(self, project_slug: str) -> int:
         self._stats.inc("reembed")
         self._stats.inc_project(project_slug, "reembed")
+        self._stats.record_activity(project_slug)
         collection = await self._ensure_collection(project_slug)
 
         info = await self._qdrant.get_collection(collection)
@@ -859,6 +864,7 @@ class MemoryEngine:
     async def cleanup_text(self, project_slug: str) -> dict[str, int]:
         self._stats.inc("cleanup")
         self._stats.inc_project(project_slug, "cleanup")
+        self._stats.record_activity(project_slug)
         collection = await self._ensure_collection(project_slug)
 
         # Pass 1: scroll the WHOLE collection before mutating anything. Writing
@@ -979,6 +985,7 @@ class MemoryEngine:
 
         self._stats.inc("consolidate")
         self._stats.inc_project(project_slug, "consolidate")
+        self._stats.record_activity(project_slug)
         collection = await self._ensure_collection(project_slug)
 
         all_points = []
@@ -1127,6 +1134,10 @@ class MemoryEngine:
             return False
         await self._qdrant.delete_collection(collection)
         self._ensured_collections.discard(collection)
+        self._stats.inc("delete_project")
+        # Drop the slug's counters outright, otherwise a deleted project keeps
+        # appearing in /diagnostics for 180 days.
+        self._stats.forget_project(project_slug)
         return True
 
     async def list_projects(self) -> list[ProjectInfo]:

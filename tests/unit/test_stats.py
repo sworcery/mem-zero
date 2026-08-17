@@ -192,3 +192,84 @@ class TestDiagnosticStats:
         stats.inc("test", 1)
         stats.flush()
         assert nested_path.exists()
+
+
+class TestLoadValueCoercion:
+    def test_null_counter_values_are_dropped_not_crashing(self, tmp_path: Path) -> None:
+        # Container-level checks let {"counters": {"search": null}} through;
+        # the first inc() then crashed the always-on hot path.
+        p = tmp_path / "s.json"
+        p.write_text(
+            '{"counters": {"search": null, "add_memory": "3", "ok": 2, "flag": true},'
+            ' "latency_totals": {"embed": null}, "latency_counts": {"embed": "x"},'
+            ' "project_counters": {"proj": {"add_memory": null, "n": 1}, "bad": 5},'
+            ' "daily_snapshots": [{"date": "2026-01-01", "total": 1}, "junk", {"nodate": 1}]}'
+        )
+        stats = DiagnosticStats(str(p))
+        stats.inc("search")  # must not raise
+        assert stats._counters == {"ok": 2, "search": 1}
+        assert stats._latency_totals == {}
+        assert stats._latency_counts == {}
+        assert stats._project_counters == {"proj": {"n": 1}}
+        assert stats._daily_snapshots == [{"date": "2026-01-01", "total": 1}]
+
+
+class TestResetAndForget:
+    def test_reset_clears_daily_snapshots(self, tmp_path: Path) -> None:
+        stats = DiagnosticStats(str(tmp_path / "s.json"))
+        stats.record_daily_snapshot({"p": 3})
+        assert stats._daily_snapshots
+        stats.reset()
+        assert stats._daily_snapshots == []
+
+    def test_forget_project(self, tmp_path: Path) -> None:
+        stats = DiagnosticStats(str(tmp_path / "s.json"))
+        stats.inc_project("gone", "add_memory")
+        stats.forget_project("gone")
+        assert "gone" not in stats._project_counters
+        stats.forget_project("never-existed")  # no-op, no raise
+
+
+class TestFlushLoopSnapshot:
+    @pytest.mark.asyncio
+    async def test_flush_loop_records_snapshot_via_provider(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import asyncio
+
+        import mem_zero.stats as st
+
+        monkeypatch.setattr(st, "_FLUSH_INTERVAL", 0.01)
+        monkeypatch.setattr(st, "_SNAPSHOT_INTERVAL", 0)
+        stats = DiagnosticStats(str(tmp_path / "s.json"))
+
+        async def provider() -> dict[str, int]:
+            return {"p": 2}
+
+        stats.set_project_count_provider(provider)
+        await stats.start_flush_loop()
+        await asyncio.sleep(0.05)
+        await stats.shutdown()
+        assert stats._daily_snapshots
+        assert stats._daily_snapshots[-1]["projects"] == {"p": 2}
+
+    @pytest.mark.asyncio
+    async def test_provider_failure_does_not_kill_loop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import asyncio
+
+        import mem_zero.stats as st
+
+        monkeypatch.setattr(st, "_FLUSH_INTERVAL", 0.01)
+        monkeypatch.setattr(st, "_SNAPSHOT_INTERVAL", 0)
+        stats = DiagnosticStats(str(tmp_path / "s.json"))
+
+        async def broken() -> dict[str, int]:
+            raise RuntimeError("qdrant down")
+
+        stats.set_project_count_provider(broken)
+        await stats.start_flush_loop()
+        await asyncio.sleep(0.05)
+        assert not stats._flush_task.done()  # still running despite errors
+        await stats.shutdown()

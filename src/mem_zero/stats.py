@@ -6,12 +6,16 @@ import json
 import logging
 import time
 from collections import deque
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _FLUSH_INTERVAL = 60
+# The flush loop takes a project-count snapshot at most this often (seconds);
+# record_daily_snapshot itself dedups to one row per calendar day.
+_SNAPSHOT_INTERVAL = 900
 _MAX_LATENCY_SAMPLES = 200
 _MAX_RECENT_ERRORS = 50
 
@@ -53,6 +57,14 @@ class _NullStats:
     def reset(self) -> None:
         pass
 
+    def forget_project(self, project: str) -> None:
+        pass
+
+    def set_project_count_provider(
+        self, provider: Callable[[], Awaitable[dict[str, int]]]
+    ) -> None:
+        pass
+
 
 NULL_STATS = _NullStats()
 
@@ -81,6 +93,8 @@ class DiagnosticStats:
         self._recent_errors: deque[dict[str, Any]] = deque(maxlen=_MAX_RECENT_ERRORS)
         self._project_counters: dict[str, dict[str, int]] = {}
         self._daily_snapshots: list[dict[str, Any]] = []
+        self._project_count_provider: Callable[[], Awaitable[dict[str, int]]] | None = None
+        self._last_snapshot_ts: float = 0.0
 
         self._load()
 
@@ -95,23 +109,40 @@ class DiagnosticStats:
             # Coerce every field to its expected type: a hand-edited or
             # version-drifted file with a null/wrong-typed value must not
             # poison the counters and crash the always-on hot path later.
-            def _as_dict(key: str) -> dict:
+            def _as_dict(key: str) -> dict[str, Any]:
                 value = data.get(key)
                 return value if isinstance(value, dict) else {}
 
-            def _as_list(key: str) -> list:
+            def _as_list(key: str) -> list[Any]:
                 value = data.get(key)
                 return value if isinstance(value, list) else []
+
+            def _num(v: object) -> bool:
+                # bool is an int subclass; a stray true/false is not a count.
+                return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+            def _as_num_dict(key: str) -> dict[str, float]:
+                # Container-level checks were not enough: {"counters":
+                # {"search": null}} survived load and crashed inc() on the
+                # always-on hot path. Keep only str -> number entries.
+                return {
+                    k: v for k, v in _as_dict(key).items()
+                    if isinstance(k, str) and _num(v)
+                }
 
             started = data.get("started_at")
             if isinstance(started, (int, float)):
                 self._started_at = started
-            self._counters = _as_dict("counters")
-            self._latency_totals = _as_dict("latency_totals")
-            self._latency_counts = _as_dict("latency_counts")
+            self._counters = {k: int(v) for k, v in _as_num_dict("counters").items()}
+            self._latency_totals = _as_num_dict("latency_totals")
+            self._latency_counts = {
+                k: int(v) for k, v in _as_num_dict("latency_counts").items()
+            }
             for key, samples in _as_dict("latency_samples").items():
-                if isinstance(samples, list):
-                    self._latencies[key] = deque(samples, maxlen=_MAX_LATENCY_SAMPLES)
+                if isinstance(key, str) and isinstance(samples, list):
+                    self._latencies[key] = deque(
+                        [x for x in samples if _num(x)], maxlen=_MAX_LATENCY_SAMPLES
+                    )
             score_sum = data.get("search_score_sum")
             self._search_score_sum = (
                 float(score_sum) if isinstance(score_sum, (int, float)) else 0.0
@@ -122,12 +153,20 @@ class DiagnosticStats:
             )
             self._search_score_buckets = {
                 **self._search_score_buckets,
-                **_as_dict("search_score_buckets"),
+                **{k: int(v) for k, v in _as_num_dict("search_score_buckets").items()},
             }
             for err in _as_list("recent_errors"):
-                self._recent_errors.append(err)
-            self._project_counters = _as_dict("project_counters")
-            self._daily_snapshots = _as_list("daily_snapshots")
+                if isinstance(err, dict):
+                    self._recent_errors.append(err)
+            self._project_counters = {
+                slug: {k: v for k, v in pc.items() if isinstance(k, str) and _num(v)}
+                for slug, pc in _as_dict("project_counters").items()
+                if isinstance(slug, str) and isinstance(pc, dict)
+            }
+            self._daily_snapshots = [
+                snap for snap in _as_list("daily_snapshots")
+                if isinstance(snap, dict) and isinstance(snap.get("date"), str)
+            ]
             logger.info("Loaded diagnostics from %s", self._path)
         except Exception:
             logger.warning(
@@ -417,14 +456,40 @@ class DiagnosticStats:
         }
         self._recent_errors.clear()
         self._project_counters.clear()
+        # A reset that left 90 days of history behind was not a reset.
+        self._daily_snapshots.clear()
         self.flush()
+
+    def forget_project(self, project: str) -> None:
+        self._project_counters.pop(project, None)
+
+    def set_project_count_provider(
+        self, provider: Callable[[], Awaitable[dict[str, int]]]
+    ) -> None:
+        # Lets the flush loop take daily snapshots on its own. Previously a
+        # snapshot was only recorded as a side effect of someone opening the
+        # dashboard, so days without a visit simply had no data point.
+        self._project_count_provider = provider
 
     async def start_flush_loop(self) -> None:
         self._flush_task = asyncio.create_task(self._flush_loop())
 
+    async def _maybe_snapshot(self) -> None:
+        if self._project_count_provider is None:
+            return
+        now = time.time()
+        if now - self._last_snapshot_ts < _SNAPSHOT_INTERVAL:
+            return
+        self._last_snapshot_ts = now
+        try:
+            self.record_daily_snapshot(await self._project_count_provider())
+        except Exception:
+            logger.debug("Daily snapshot skipped", exc_info=True)
+
     async def _flush_loop(self) -> None:
         while True:
             await asyncio.sleep(_FLUSH_INTERVAL)
+            await self._maybe_snapshot()
             self.flush()
 
     async def shutdown(self) -> None:

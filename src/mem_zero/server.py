@@ -27,6 +27,15 @@ engine = MemoryEngine(config, backend, stats=stats)
 set_engine(engine)
 
 
+async def _project_counts() -> dict[str, int]:
+    return {p.slug: p.memory_count for p in await engine.list_projects()}
+
+
+# The flush loop takes daily snapshots itself now; previously they were only
+# recorded when someone happened to open the dashboard.
+stats.set_project_count_provider(_project_counts)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await stats.start_flush_loop()
