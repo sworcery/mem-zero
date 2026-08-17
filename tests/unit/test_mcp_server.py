@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -86,6 +86,7 @@ def mock_engine() -> AsyncMock:
     engine.list_all.return_value = []
     engine.delete.return_value = True
     engine.delete_all.return_value = 3
+    engine.count_memories.return_value = 3
     return engine
 
 
@@ -246,3 +247,109 @@ class TestMcpBridge:
         )
         assert resp.json()["result"]["isError"] is True
         mock_engine.delete.assert_not_awaited()
+
+
+class TestMcpToolHardening:
+    def test_delete_all_without_confirm_is_error_naming_project_and_count(
+        self, client: TestClient, mock_engine: AsyncMock
+    ) -> None:
+        # The most destructive tool used to be a single unguarded call.
+        resp = _call_tool(client, "/mcp/my-project/http/john", "delete_all_memories", {})
+        result = resp.json()["result"]
+        assert result["isError"] is True
+        text = result["content"][0]["text"]
+        assert "my-project" in text and "3" in text and "confirm=true" in text
+        mock_engine.delete_all.assert_not_awaited()
+
+    def test_delete_all_with_confirm_deletes(
+        self, client: TestClient, mock_engine: AsyncMock
+    ) -> None:
+        resp = _call_tool(
+            client, "/mcp/my-project/http/john", "delete_all_memories", {"confirm": True}
+        )
+        result = resp.json()["result"]
+        assert result.get("isError") is not True
+        assert json.loads(result["content"][0]["text"]) == {"deleted": 3}
+        mock_engine.delete_all.assert_awaited_once_with("my-project")
+
+    def test_list_memories_returns_total_and_truncated(
+        self, client: TestClient, mock_engine: AsyncMock
+    ) -> None:
+        # Used to silently cap at 50 while claiming "List all".
+        from mem_zero.models import MemoryRecord
+        mock_engine.list_all.return_value = [
+            MemoryRecord(id="a", text="t", user_id="u", created_at=0, updated_at=0)
+        ]
+        mock_engine.count_memories.return_value = 42
+        resp = _call_tool(
+            client, "/mcp/my-project/http/john", "list_memories", {"limit": 1}
+        )
+        payload = json.loads(resp.json()["result"]["content"][0]["text"])
+        assert payload["total"] == 42
+        assert payload["truncated"] is True
+        assert len(payload["memories"]) == 1
+        mock_engine.list_all.assert_awaited_once_with("my-project", limit=1)
+
+    def test_list_memories_limit_out_of_range_is_error(
+        self, client: TestClient, mock_engine: AsyncMock
+    ) -> None:
+        resp = _call_tool(
+            client, "/mcp/my-project/http/john", "list_memories", {"limit": 5000}
+        )
+        assert resp.json()["result"]["isError"] is True
+        mock_engine.list_all.assert_not_awaited()
+
+    def test_search_query_too_long_is_error(
+        self, client: TestClient, mock_engine: AsyncMock
+    ) -> None:
+        resp = _call_tool(
+            client, "/mcp/my-project/http/john", "search_memory",
+            {"query": "x" * 2001},
+        )
+        assert resp.json()["result"]["isError"] is True
+        mock_engine.search.assert_not_awaited()
+
+    def test_delete_memories_counts_only_real_deletes(
+        self, client: TestClient, mock_engine: AsyncMock
+    ) -> None:
+        # engine.delete now returns False for ids that never existed.
+        mock_engine.delete.side_effect = [True, False]
+        good1 = "550e8400-e29b-41d4-a716-446655440000"
+        good2 = "660e8400-e29b-41d4-a716-446655440000"
+        resp = _call_tool(
+            client, "/mcp/my-project/http/john", "delete_memories",
+            {"memory_ids": [good1, good2]},
+        )
+        assert json.loads(resp.json()["result"]["content"][0]["text"]) == {"deleted": 1}
+
+    def test_no_response_started_yields_502(
+        self, client: TestClient, mock_engine: AsyncMock
+    ) -> None:
+        # If the transport never emits http.response.start the old code
+        # returned the initialised 200 with an empty body — "success".
+        async def silent(*a, **kw):
+            return None
+
+        with patch(
+            "mem_zero.mcp_server.StreamableHTTPServerTransport.handle_request",
+            new=silent,
+        ):
+            resp = _call_tool(
+                client, "/mcp/my-project/http/john", "add_memories", {"text": "x"}
+            )
+        assert resp.status_code == 502
+        assert resp.json()["error"]["code"] == -32603
+
+    def test_tool_descriptions_are_instructive(self, client: TestClient) -> None:
+        # Descriptions are the model's only decision signal; pin the key facts.
+        resp = client.post(
+            "/mcp/my-project/http/john",
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            headers=_HEADERS,
+        )
+        by_name = {t["name"]: t["description"] for t in resp.json()["result"]["tools"]}
+        assert "may legitimately be 0" in by_name["add_memories"]
+        assert "Semantic" in by_name["search_memory"]
+        assert "truncated" in by_name["list_memories"]
+        assert "IRREVERSIBLE" in by_name["delete_all_memories"]
+        assert "confirm=true" in by_name["delete_all_memories"]

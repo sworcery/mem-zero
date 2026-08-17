@@ -12,7 +12,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.streamable_http import StreamableHTTPServerTransport
 from pydantic import Field
 
-from .config import validate_slug
+from .config import validate_slug, validate_user_id
 from .memory_engine import MemoryEngine, validate_memory_id
 
 logger = logging.getLogger(__name__)
@@ -51,17 +51,36 @@ def _format_record(record: dict) -> dict:
     return record
 
 
-@mcp.tool(description="Store a memory for the current project.")
-async def add_memories(text: Annotated[str, Field(max_length=50000)]) -> str:
+@mcp.tool(
+    description=(
+        "Store notes for the current project's long-term memory. Facts are "
+        "extracted, deduplicated against existing memories, and embedded; "
+        "conversational filler is dropped, so `stored` may legitimately be 0. "
+        "Call this at natural checkpoints (a decision made, a bug fixed, a "
+        "gotcha discovered), not continuously. Send focused notes — decisions "
+        "and their reasoning, workarounds, dead ends, preferences — rather than "
+        "whole transcripts; very long inputs are truncated by the model."
+    )
+)
+async def add_memories(text: Annotated[str, Field(min_length=1, max_length=50000)]) -> str:
     project, user = _get_context()
     engine = _get_engine()
     ids = await engine.add(project, user, [text])
     return json.dumps({"stored": len(ids), "ids": ids})
 
 
-@mcp.tool(description="Semantic search across memories in the current project.")
+@mcp.tool(
+    description=(
+        "Semantic (meaning-based, not keyword) search over this project's "
+        "memories. Use it at the start of a task to recall prior decisions and "
+        "gotchas before reading code — it surfaces things the code does not "
+        "explain. Phrase the query as the topic you care about, not exact "
+        "words. Returns up to top_k results, each with a 0-1 relevance score."
+    )
+)
 async def search_memory(
-    query: str, top_k: Annotated[int, Field(ge=1, le=100)] = 10
+    query: Annotated[str, Field(min_length=1, max_length=2000)],
+    top_k: Annotated[int, Field(ge=1, le=100)] = 10,
 ) -> str:
     project, _ = _get_context()
     engine = _get_engine()
@@ -69,15 +88,38 @@ async def search_memory(
     return json.dumps([_format_record(r.model_dump()) for r in results])
 
 
-@mcp.tool(description="List all memories stored for the current project.")
-async def list_memories() -> str:
+@mcp.tool(
+    description=(
+        "Page through this project's stored memories (an inventory, in storage "
+        "order — not ranked). Prefer search_memory unless you need to see "
+        "everything. Returns {memories, total, truncated}: `total` is the "
+        "project's full count and `truncated` is true when more exist beyond "
+        "`limit`."
+    )
+)
+async def list_memories(limit: Annotated[int, Field(ge=1, le=1000)] = 100) -> str:
     project, _ = _get_context()
     engine = _get_engine()
-    results = await engine.list_all(project)
-    return json.dumps([_format_record(r.model_dump()) for r in results])
+    results = await engine.list_all(project, limit=limit)
+    total = await engine.count_memories(project)
+    return json.dumps(
+        {
+            "memories": [_format_record(r.model_dump()) for r in results],
+            "total": total,
+            "truncated": total > len(results),
+        }
+    )
 
 
-@mcp.tool(description="Delete specific memories by their IDs.")
+@mcp.tool(
+    description=(
+        "Delete specific memories by id (get ids from search_memory or "
+        "list_memories). Every id is validated before any deletion happens, so "
+        "one bad id fails the whole call rather than leaving a partial delete. "
+        "Returns the number actually deleted; ids that did not exist are not "
+        "counted. Ask the user before calling this."
+    )
+)
 async def delete_memories(memory_ids: list[str]) -> str:
     project, _ = _get_context()
     engine = _get_engine()
@@ -92,10 +134,26 @@ async def delete_memories(memory_ids: list[str]) -> str:
     return json.dumps({"deleted": deleted})
 
 
-@mcp.tool(description="Delete all memories for the current project.")
-async def delete_all_memories() -> str:
+@mcp.tool(
+    description=(
+        "IRREVERSIBLE: delete every memory in the current project. This is a "
+        "two-step tool. Call it with no arguments first to see how many "
+        "memories would be destroyed; then, only with explicit user approval, "
+        "call it again with confirm=true to execute. Never call with "
+        "confirm=true on your own initiative."
+    )
+)
+async def delete_all_memories(confirm: bool = False) -> str:
     project, _ = _get_context()
     engine = _get_engine()
+    if not confirm:
+        count = await engine.count_memories(project)
+        # ValueError -> FastMCP returns an isError result the model can read.
+        raise ValueError(
+            f"Refusing to delete {count} memories in project {project!r} without "
+            f"confirm=true. This cannot be undone — get explicit user approval, "
+            f"then call again with confirm=true."
+        )
     count = await engine.delete_all(project)
     return json.dumps({"deleted": count})
 
@@ -118,7 +176,9 @@ async def handle_mcp(request: Request, client_name: str, user_id: str) -> Respon
             status_code=400,
         )
 
-    if not user_id or len(user_id) > 63 or not user_id.replace("-", "").replace("_", "").isalnum():
+    try:
+        validate_user_id(user_id)
+    except ValueError:
         return Response(
             content=f"Invalid user_id: {user_id!r}",
             status_code=400,
@@ -168,6 +228,20 @@ async def handle_mcp(request: Request, client_name: str, user_id: str) -> Respon
         client_name_var.reset(client_token)
         user_id_var.reset(user_token)
 
+    if not response_started:
+        # The transport never emitted http.response.start — returning the
+        # initialised 200 with an empty body would tell the client "success".
+        return Response(
+            content=json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32603, "message": "MCP transport produced no response"},
+                }
+            ),
+            status_code=502,
+            media_type="application/json",
+        )
     return Response(
         content=bytes(response_body),
         status_code=response_status,
