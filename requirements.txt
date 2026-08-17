@@ -100,7 +100,7 @@ loguru==0.7.3
     # via fastembed
 markupsafe==3.0.3
     # via jinja2
-mcp==1.29.0
+mcp==2.0.0
     # via mem-zero (pyproject.toml)
 mmh3==5.2.1
     # via fastembed
@@ -119,7 +119,7 @@ packaging==26.3
     #   onnxruntime
 pillow==12.3.0
     # via fastembed
-portalocker==3.2.0
+portalocker==4.1.0
     # via qdrant-client
 protobuf==7.35.1
     # via
@@ -136,7 +136,7 @@ pydantic==2.13.4
     #   mcp
     #   pydantic-settings
     #   qdrant-client
-pydantic-core==2.46.4
+pydantic-core==2.48.0
     # via pydantic
 pydantic-settings==2.15.0
     # via mcp
