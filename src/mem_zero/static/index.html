@@ -2705,6 +2705,9 @@
 
     ctx.fillStyle = '#9aa5ce';
     ctx.font = '13px JetBrains Mono, monospace';
+    // Explicit baseline: drawYAxis leaves textBaseline as 'middle', which
+    // centred these labels on H-2 and clipped their bottom half off the canvas.
+    ctx.textBaseline = 'bottom';
     ctx.textAlign = 'start';
     ctx.fillText(snaps[0].date.slice(5), PAD_L + 2, H - 2);
     ctx.textAlign = 'end';
@@ -2962,6 +2965,9 @@
       ctx.lineWidth = 0.5;
       ctx.stroke();
     }
+    // Canvas text state is global; restore the default so callers that draw
+    // afterwards (x-axis labels) are not silently re-baselined to 'middle'.
+    ctx.textBaseline = 'alphabetic';
   }
 
   function drawDualChart(canvas, h1, h2, thresh1, thresh2) {
@@ -2975,7 +2981,7 @@
     const W = rect.width;
     const H = rect.height;
     const PAD_L = 42;
-    const PAD_B = 16;
+    const PAD_B = 18;
     const CW = W - PAD_L;
     const CH = H - PAD_B;
     ctx.clearRect(0, 0, W, H);
@@ -3026,6 +3032,8 @@
     if (times.length >= 2) {
       ctx.fillStyle = '#9aa5ce';
       ctx.font = '13px JetBrains Mono, monospace';
+      // See drawGrowthChart: textBaseline must be set explicitly here.
+      ctx.textBaseline = 'bottom';
       const fmtTime = ts => new Date(ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
       ctx.textAlign = 'start';
       ctx.fillText(fmtTime(times[0]), PAD_L, H - 2);
