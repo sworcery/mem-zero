@@ -114,7 +114,7 @@ jobs:
 
       # TODO(arm64): native ubuntu-24.04-arm matrix + imagetools create merge; QEMU llama-cpp compile is 30-60+ min and load:true does not support multi-platform.
       - name: Build image for scanning
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           load: true
@@ -134,7 +134,7 @@ jobs:
 
       - name: Push image
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
