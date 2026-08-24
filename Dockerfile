@@ -4,7 +4,7 @@ FROM qdrant/qdrant:v1.17.1 AS qdrant-bin
 ############################ builder ############################
 # Compiles llama-cpp-python (needs build-essential + cmake) into a venv. None
 # of the toolchain reaches the runtime image.
-FROM ubuntu:24.04 AS builder
+FROM ubuntu:26.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -29,7 +29,7 @@ RUN pip wheel --no-deps -w /wheels .
 ############################ runtime ############################
 # MUST stay on the same base tag as the builder: the venv's interpreter path
 # and ABI have to match. Dependabot bumps both FROM lines together — check.
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 ARG S6_OVERLAY_VERSION=3.2.0.0
 ARG TARGETARCH
 
