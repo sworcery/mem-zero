@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM qdrant/qdrant:v1.17.1 AS qdrant-bin
+FROM qdrant/qdrant:v1.19.0 AS qdrant-bin
 
 ############################ builder ############################
 # Compiles llama-cpp-python (needs build-essential + cmake) into a venv. None
