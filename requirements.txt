@@ -9,7 +9,7 @@ annotated-doc==0.0.5
     # via fastapi
 annotated-types==0.8.0
     # via pydantic
-anyio==4.14.2
+anyio==4.15.1
     # via
     #   mem-zero (pyproject.toml)
     #   httpx
@@ -28,9 +28,9 @@ certifi==2026.7.22
     #   requests
 cffi==2.1.1 ; platform_python_implementation != 'PyPy'
     # via cryptography
-charset-normalizer==3.5.1
+charset-normalizer==3.5.2
     # via requests
-click==8.4.2
+click==8.5.0
     # via
     #   huggingface-hub
     #   uvicorn
@@ -39,21 +39,21 @@ colorama==0.4.6 ; sys_platform == 'win32'
     #   click
     #   loguru
     #   tqdm
-cryptography==50.0.0
+cryptography==50.0.2
     # via pyjwt
 diskcache==5.6.3
     # via llama-cpp-python
-fastapi==0.141.1
+fastapi==0.142.2
     # via mem-zero (pyproject.toml)
-fastembed==0.8.0
+fastembed==0.8.1
     # via mem-zero (pyproject.toml)
-filelock==3.32.3
+filelock==4.0.9
     # via huggingface-hub
 flatbuffers==25.12.19
     # via onnxruntime
-fsspec==2026.7.0
+fsspec==2026.9.0
     # via huggingface-hub
-grpcio==1.83.0
+grpcio==1.84.0
     # via qdrant-client
 h11==0.16.0
     # via
@@ -77,13 +77,13 @@ httpx==0.28.1
     #   qdrant-client
 httpx-sse==0.4.3
     # via mcp
-huggingface-hub==1.27.0
+huggingface-hub==2.1.1
     # via
     #   fastembed
     #   tokenizers
 hyperframe==6.1.0
     # via h2
-idna==3.18
+idna==3.20
     # via
     #   anyio
     #   httpx
@@ -94,15 +94,15 @@ jsonschema==4.26.0
     # via mcp
 jsonschema-specifications==2025.9.1
     # via jsonschema
-llama-cpp-python==0.3.34
+llama-cpp-python==0.3.36
     # via mem-zero (pyproject.toml)
 loguru==0.7.3
     # via fastembed
 markupsafe==3.0.3
     # via jinja2
-mcp==1.29.0
+mcp==2.2.0
     # via mem-zero (pyproject.toml)
-mmh3==5.2.1
+mmh3==5.3.1
     # via fastembed
 numpy==2.5.2
     # via
@@ -119,9 +119,9 @@ packaging==26.3
     #   onnxruntime
 pillow==12.3.0
     # via fastembed
-portalocker==3.2.0
+portalocker==4.4.0
     # via qdrant-client
-protobuf==7.35.1
+protobuf==7.36.2
     # via
     #   onnxruntime
     #   qdrant-client
@@ -129,20 +129,20 @@ py-rust-stemmers==0.1.8
     # via fastembed
 pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
     # via cffi
-pydantic==2.13.4
+pydantic==2.13.5
     # via
     #   mem-zero (pyproject.toml)
     #   fastapi
     #   mcp
     #   pydantic-settings
     #   qdrant-client
-pydantic-core==2.46.4
+pydantic-core==2.49.0
     # via pydantic
 pydantic-settings==2.15.0
     # via mcp
-pyjwt==2.13.0
+pyjwt==2.15.1
     # via mcp
-python-dotenv==1.2.3
+python-dotenv==1.2.4
     # via
     #   pydantic-settings
     #   uvicorn
@@ -156,7 +156,7 @@ pyyaml==6.0.3
     # via
     #   huggingface-hub
     #   uvicorn
-qdrant-client==1.19.0
+qdrant-client==1.19.1
     # via mem-zero (pyproject.toml)
 referencing==0.37.0
     # via
@@ -168,16 +168,16 @@ rpds-py==2026.6.3
     # via
     #   jsonschema
     #   referencing
-sse-starlette==3.4.8
+sse-starlette==3.5.0
     # via mcp
-starlette==1.6.0
+starlette==1.7.0
     # via
     #   fastapi
     #   mcp
     #   sse-starlette
-tokenizers==0.23.1
+tokenizers==0.23.2
     # via fastembed
-tqdm==4.70.0
+tqdm==4.70.1
     # via
     #   fastembed
     #   huggingface-hub
@@ -200,17 +200,17 @@ typing-inspection==0.4.4
     #   mcp
     #   pydantic
     #   pydantic-settings
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   qdrant-client
     #   requests
-uvicorn==0.52.3
+uvicorn==0.54.0
     # via
     #   mem-zero (pyproject.toml)
     #   mcp
-uvloop==0.22.1 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
+uvloop==0.23.0 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
     # via uvicorn
-watchfiles==1.2.0
+watchfiles==1.3.0
     # via uvicorn
 websockets==17.0.1
     # via uvicorn
