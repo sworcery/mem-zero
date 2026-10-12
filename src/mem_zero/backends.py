@@ -179,6 +179,10 @@ class OllamaBackend(LLMBackend):
                     # A JSON schema constrains generation to the exact shape,
                     # eliminating most parse failures; plain "json" otherwise.
                     "format": schema if schema is not None else "json",
+                    # Thinking models (qwen3.5, gemma4, granite4.2) think by
+                    # default and can spend all of num_predict reasoning,
+                    # returning empty content. Non-thinking models accept it.
+                    "think": False,
                     # Keep the model resident so back-to-back calls don't pay a
                     # cold reload (the source of the worst-case latency spikes).
                     "keep_alive": "30m",

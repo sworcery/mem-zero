@@ -13,7 +13,7 @@ services:
 
       # Ollama settings (recommended — much better extraction than bundled 3B)
       # - OLLAMA_BASE_URL=http://your-ollama-host:11434
-      # - LLM_MODEL=qwen2.5:14b
+      # - LLM_MODEL=gemma4:12b
       # - EMBEDDER_MODEL=nomic-embed-text
 
       # OpenAI-compatible settings (beta)

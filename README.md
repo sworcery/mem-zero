@@ -315,7 +315,7 @@ mem-zero supports three LLM backends for fact extraction and deduplication.
 
 ### Using with Ollama (recommended)
 
-Ollama gives the best results. The bundled 3B model works for basic use, but a 7B+ model on GPU produces significantly better fact extraction. If you have a dedicated GPU, `qwen2.5:14b` is the sweet spot for quality vs. resource usage.
+Ollama gives the best results. The bundled 3B model works for basic use, but a 7B+ model on GPU produces significantly better fact extraction. If you have a dedicated GPU, `gemma4:12b` is the sweet spot for quality vs. resource usage (about 9.5 GB of VRAM); it deduplicates noticeably more accurately than `qwen2.5:14b`. mem-zero sends `think: false` on every call, so models with optional thinking (gemma4, qwen3.5, granite4.2) answer directly. gpt-oss always reasons and is not recommended.
 
 ```bash
 docker run -d \
@@ -323,7 +323,7 @@ docker run -d \
   -p 8765:8765 \
   -v mem-zero-data:/mem-zero/storage \
   -e OLLAMA_BASE_URL=http://your-ollama-host:11434 \
-  -e LLM_MODEL=qwen2.5:14b \
+  -e LLM_MODEL=gemma4:12b \
   ghcr.io/sworcery/mem-zero:latest
 ```
 

@@ -398,6 +398,15 @@ class TestOllamaRetry:
             await b.embed(["x"])
         assert b._http.post.call_count == 2
 
+    @pytest.mark.asyncio
+    async def test_generate_disables_thinking(self) -> None:
+        b = self._backend()
+        b._http = AsyncMock()
+        b._http.post.return_value = self._ok({"message": {"content": '{"facts": []}'}})
+        out = await b.generate("s", "u")
+        assert out == '{"facts": []}'
+        assert b._http.post.call_args.kwargs["json"]["think"] is False
+
 
 class TestOpenAIEmbed:
     @staticmethod
