@@ -21,6 +21,23 @@ class EmbeddingError(Exception):
     vector, or a fallback whose vectors do not fit the collection)."""
 
 
+class BackendUnavailable(Exception):  # noqa: N818
+    """The primary LLM backend cannot serve an add right now (unreachable,
+    5xx, or its circuit breaker is open). The add path queues instead of
+    failing or degrading to the bundled fallback."""
+
+
+def _is_outage(exc: Exception) -> bool:
+    # Only failures that a healthy backend would not repeat count as an
+    # outage. A 400 or a malformed body is a property of the input, and
+    # treating it as an outage would park that one add at the head of the
+    # replay queue forever.
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code >= 500 or code in (401, 403, 404, 408, 429)
+    return isinstance(exc, httpx.TransportError)
+
+
 # OllamaBackend transient-failure retry: 2 attempts total, short backoff.
 _OLLAMA_ATTEMPTS = 2
 _OLLAMA_RETRY_BACKOFF_S = 0.5
@@ -34,6 +51,16 @@ class LLMBackend(ABC):
 
     @abstractmethod
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+    async def generate_primary(
+        self, system: str, user: str, schema: dict[str, object] | None = None
+    ) -> str:
+        # Add-path variant: raises BackendUnavailable on an outage and never
+        # degrades to a fallback. Backends with no fallback just delegate.
+        return await self.generate(system, user, schema)
+
+    async def embed_primary(self, texts: list[str]) -> list[list[float]]:
+        return await self.embed(texts)
 
     @property
     @abstractmethod
@@ -308,6 +335,24 @@ class OpenAIBackend(LLMBackend):
         data = sorted(resp.json()["data"], key=lambda item: item["index"])
         return [item["embedding"] for item in data]
 
+    async def generate_primary(
+        self, system: str, user: str, schema: dict[str, object] | None = None
+    ) -> str:
+        try:
+            return await self.generate(system, user, schema)
+        except Exception as exc:
+            if _is_outage(exc):
+                raise BackendUnavailable(str(exc)) from exc
+            raise
+
+    async def embed_primary(self, texts: list[str]) -> list[list[float]]:
+        try:
+            return await self.embed(texts)
+        except Exception as exc:
+            if _is_outage(exc):
+                raise BackendUnavailable(str(exc)) from exc
+            raise
+
     async def close(self) -> None:
         await self._http.aclose()
 
@@ -421,6 +466,40 @@ class FallbackBackend(LLMBackend):
             self._emb.using_fallback = True
             self._trip(self._emb)
             return await self._embed_fallback(texts)
+
+    async def generate_primary(
+        self, system: str, user: str, schema: dict[str, object] | None = None
+    ) -> str:
+        if self._in_cooldown(self._gen):
+            raise BackendUnavailable("primary generate is in breaker cooldown")
+        try:
+            result = await self._primary.generate(system, user, schema)
+        except Exception as exc:
+            if not _is_outage(exc):
+                raise
+            logger.warning("Primary backend failed (%s), queueing add", exc)
+            self._trip(self._gen)
+            raise BackendUnavailable(str(exc)) from exc
+        if self._gen.using_fallback:
+            self._gen.using_fallback = False
+            self._stats.inc("backend.recovery")
+        return result
+
+    async def embed_primary(self, texts: list[str]) -> list[list[float]]:
+        if self._in_cooldown(self._emb):
+            raise BackendUnavailable("primary embed is in breaker cooldown")
+        try:
+            result = await self._primary.embed(texts)
+        except Exception as exc:
+            if not _is_outage(exc):
+                raise
+            logger.warning("Primary embedding failed (%s), queueing add", exc)
+            self._trip(self._emb)
+            raise BackendUnavailable(str(exc)) from exc
+        if self._emb.using_fallback:
+            self._emb.using_fallback = False
+            self._stats.inc("backend.embed_recovery")
+        return result
 
     async def _embed_fallback(self, texts: list[str]) -> list[list[float]]:
         fallback = await self._get_fallback()

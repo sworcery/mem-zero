@@ -16,6 +16,7 @@ import pytest
 def mock_engine() -> AsyncMock:
     engine = AsyncMock()
     engine.health_check.return_value = True
+    engine.pending_count.return_value = 0
     engine.list_projects.return_value = []
     engine.list_all.return_value = []
     engine.close = AsyncMock()

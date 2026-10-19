@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import math
@@ -21,12 +22,24 @@ from qdrant_client.models import (
     VectorParams,
 )
 
-from .backends import EmbeddingError, LLMBackend
+from .backends import BackendUnavailable, EmbeddingError, LLMBackend
 from .config import Config
 from .models import MemoryRecord, ProjectInfo
+from .pending import PendingAdd, PendingStore
 from .stats import NULL_STATS, DiagnosticStats, _NullStats
 
 logger = logging.getLogger(__name__)
+
+# Set for the duration of an add (live or replayed): LLM calls then go through
+# the backend's primary-only methods, so an outage raises BackendUnavailable
+# instead of silently extracting/embedding with the bundled fallback.
+_add_path: contextvars.ContextVar[bool] = contextvars.ContextVar("add_path", default=False)
+
+
+class QueuedIds(list[str]):
+    """Empty result of an add that was persisted for later replay."""
+
+    queued = True
 
 RESERVED_PAYLOAD_KEYS = frozenset({"text", "user_id", "project", "created_at", "updated_at"})
 
@@ -214,6 +227,7 @@ class MemoryEngine:
         self._config = config
         self._backend = backend
         self._stats = stats or NULL_STATS
+        self._pending = PendingStore(config.pending_dir)
 
         if config.qdrant_url:
             self._qdrant = AsyncQdrantClient(
@@ -331,7 +345,10 @@ class MemoryEngine:
     ) -> str:
         t0 = time.monotonic()
         try:
-            result = await self._backend.generate(system, user, schema)
+            if _add_path.get() and isinstance(self._backend, LLMBackend):
+                result = await self._backend.generate_primary(system, user, schema)
+            else:
+                result = await self._backend.generate(system, user, schema)
             self._stats.record_latency(
                 "llm_generate", (time.monotonic() - t0) * 1000
             )
@@ -346,7 +363,10 @@ class MemoryEngine:
     async def _timed_embed(self, texts: list[str]) -> list[list[float]]:
         t0 = time.monotonic()
         try:
-            result = await self._backend.embed(texts)
+            if _add_path.get() and isinstance(self._backend, LLMBackend):
+                result = await self._backend.embed_primary(texts)
+            else:
+                result = await self._backend.embed(texts)
             self._stats.record_latency(
                 "embed", (time.monotonic() - t0) * 1000
             )
@@ -435,6 +455,8 @@ class MemoryEngine:
         self._stats.inc("extract_facts")
         try:
             raw = await self._timed_generate(EXTRACT_PROMPT, text, schema=EXTRACT_SCHEMA)
+        except BackendUnavailable:
+            raise
         except Exception as exc:
             self._stats.inc("extract_facts.llm_failures")
             self._stats.record_error("extract_facts", str(exc))
@@ -452,6 +474,8 @@ class MemoryEngine:
                     EXTRACT_PROMPT, text, schema=EXTRACT_SCHEMA
                 )
                 parsed = json.loads(raw)
+            except BackendUnavailable:
+                raise
             except Exception as exc:
                 self._stats.record_error("extract_facts", str(exc))
                 raise LLMError(f"Fact extraction failed: {exc}") from exc
@@ -479,7 +503,7 @@ class MemoryEngine:
         fact: str,
         fact_vector: list[float] | None = None,
     ) -> tuple[str, str | None, str | None]:
-        if self._backend.is_degraded:
+        if self._backend.is_degraded and not _add_path.get():
             logger.debug("Skipping LLM dedup (degraded mode), adding directly")
             self._stats.inc("dedup.degraded_skip")
             return "add", None, None
@@ -516,6 +540,8 @@ class MemoryEngine:
             raw = await self._timed_generate(
                 DEDUP_PROMPT, user_content, schema=DEDUP_SCHEMA
             )
+        except BackendUnavailable:
+            raise
         except Exception as exc:
             self._stats.record_error("dedup", str(exc))
             self._stats.inc("dedup.add")
@@ -603,12 +629,93 @@ class MemoryEngine:
         texts: list[str],
         metadata: dict[str, object] | None = None,
     ) -> list[str]:
+        try:
+            if await self.pending_count():
+                # Anything already waiting must be processed first, or this
+                # add would overtake older notes and invert their order.
+                raise BackendUnavailable("earlier adds are still queued")
+            return await self._add_primary(project_slug, user_id, texts, metadata)
+        except BackendUnavailable as exc:
+            # Whole raw text is queued even if some facts were already upserted:
+            # replay's dedup skips those, and re-extracting is cheaper than
+            # tracking partial progress.
+            logger.warning("LLM backend unavailable, queueing add: %s", exc)
+            for text in texts:
+                await asyncio.to_thread(
+                    self._pending.enqueue, project_slug, user_id, text, metadata
+                )
+            self._stats.inc("queue.enqueued", len(texts))
+            return QueuedIds()
+
+    async def _add_primary(
+        self,
+        project_slug: str,
+        user_id: str,
+        texts: list[str],
+        metadata: dict[str, object] | None,
+        timestamp: float | None = None,
+    ) -> list[str]:
+        token = _add_path.set(True)
+        try:
+            return await self._add_texts(
+                project_slug, user_id, texts, metadata, timestamp
+            )
+        finally:
+            _add_path.reset(token)
+
+    async def pending_count(self) -> int:
+        return await asyncio.to_thread(self._pending.count)
+
+    async def replay_pending(self, stop: asyncio.Event | None = None) -> int:
+        """Process queued adds oldest first; returns how many succeeded."""
+        done = 0
+        for item in await asyncio.to_thread(self._pending.list):
+            if stop is not None and stop.is_set():
+                break
+            try:
+                await self._add_primary(
+                    item.project, item.user_id, [item.text], item.metadata or None,
+                    item.enqueued_at,
+                )
+            except BackendUnavailable as exc:
+                if not await self._backend.health_ping():
+                    # Genuinely down: leave the file and its attempts alone.
+                    break
+                # Backend is healthy yet this add still timed out or was
+                # refused, so the item itself is the problem (e.g. a huge
+                # note). Charge it so it dead-letters instead of blocking.
+                self._charge(item, str(exc))
+                break
+            except Exception as exc:
+                logger.exception("Replay of %s failed", item.path.name)
+                # Only the head pays: a shared cause (Qdrant down) must not
+                # dead-letter the whole queue in one round.
+                self._charge(item, str(exc))
+                break
+            self._pending.delete(item)
+            self._stats.inc("queue.replayed")
+            done += 1
+        return done
+
+    def _charge(self, item: PendingAdd, error: str) -> None:
+        if self._pending.record_failure(item, error):
+            self._stats.inc("queue.dead_lettered")
+
+    async def _add_texts(
+        self,
+        project_slug: str,
+        user_id: str,
+        texts: list[str],
+        metadata: dict[str, object] | None,
+        timestamp: float | None = None,
+    ) -> list[str]:
         self._stats.inc("add_memory")
         self._stats.inc_project(project_slug, "add_memory")
         self._stats.record_activity(project_slug)
         t0 = time.monotonic()
         collection = await self._ensure_collection(project_slug)
-        now = time.time()
+        # A replayed add keeps the time the note was written, not replay time.
+        now = timestamp if timestamp is not None else time.time()
         ids: list[str] = []
 
         clean_meta = {

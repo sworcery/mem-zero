@@ -327,7 +327,7 @@ docker run -d \
   ghcr.io/sworcery/mem-zero:latest
 ```
 
-**Fallback:** When using Ollama, if the server is unreachable, requests automatically fall back to the bundled 3B model. The fallback is lazy — it only loads into memory on the first failure. Extraction quality is reduced but the service stays available.
+**Fallback:** When using Ollama, if the server is unreachable, search and cleanup fall back to the bundled embedder. That only works when your collections use its 768 dimensions; with a different embedder they fail until Ollama is back. The fallback is lazy: it only loads into memory on the first failure. Consolidate waits for Ollama, and adds are queued until Ollama is back (see Outages and the retry queue).
 
 ### Using the bundled backend
 
@@ -347,6 +347,12 @@ docker run -d \
 Works with any OpenAI-compatible API (OpenAI, Groq, Together, etc.) by setting `OPENAI_BASE_URL`. This backend has not been extensively tested — if you encounter issues, please report them.
 
 </details>
+
+## Outages and the retry queue
+
+If the LLM backend (Ollama or an OpenAI-compatible API) is unreachable when you add a memory, the note is saved raw to `PENDING_DIR` instead of being lost or stored without deduplication. The add returns `{"stored": 0, "ids": [], "queued": true}` (the MCP tool returns the same with a short note). Queued adds never use the bundled fallback model.
+
+Every 30 seconds, if the queue is not empty and the backend is healthy again, queued adds are replayed oldest first through the normal extract, dedup and store path. A replayed add that fails for a reason other than an outage is retried, and moved to `PENDING_DIR/failed/` after 10 attempts. `/health` reports the queue size as `pending`, and the diagnostics counters `queue.enqueued`, `queue.replayed` and `queue.dead_lettered` track activity. Deployments that use only the bundled backend never queue. To retry dead letters, move the files from `PENDING_DIR/failed/` back into `PENDING_DIR`. Keep `PENDING_DIR` on persistent storage so the queue survives restarts.
 
 ## Web dashboard
 
@@ -517,6 +523,7 @@ All settings are via environment variables.
 | `RERANK_ENABLED` | `false` | Rerank search results with a CPU cross-encoder for sharper relevance scores (~0.5s extra per search, ~200 MB RAM) |
 | `RERANK_MODEL` | `Xenova/ms-marco-MiniLM-L-6-v2` | fastembed cross-encoder model used when reranking |
 | `STATS_PATH` | `/mem-zero/storage/diagnostics.json` | File where diagnostics counters are persisted across restarts |
+| `PENDING_DIR` | `/mem-zero/storage/pending` | Directory where adds are held while the LLM backend is unreachable (see Outages and the retry queue) |
 
 > **Upgrading and want the per-backend default?** mem-zero persists your env
 > vars to `.env.saved` on the storage volume so Unraid template edits can't
@@ -573,7 +580,7 @@ The container bundles everything into a single image using s6-overlay for proces
 - **Qwen2.5-3B** — bundled LLM for fact extraction and dedup (CPU-only, ~1.8 GB RAM)
 - **fastembed** — bundled embedding model (nomic-embed-text, ~270 MB)
 
-External LLMs (Ollama, OpenAI) are supported as alternatives. When using Ollama, the bundled model serves as an automatic fallback if Ollama is unreachable.
+External LLMs (Ollama, OpenAI) are supported as alternatives. When using Ollama, the bundled embedder serves as an automatic fallback for search and cleanup if Ollama is unreachable (768-dimension collections only). Adds are queued instead.
 
 Project isolation is enforced at the Qdrant collection level. Each project slug maps to `{prefix}_{slug}`, and all queries are scoped to a single collection.
 

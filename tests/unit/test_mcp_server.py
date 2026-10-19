@@ -187,6 +187,20 @@ class TestMcpBridge:
         # The URL path params flowed through the context vars into the engine.
         mock_engine.add.assert_awaited_once_with("my-project", "john", ["hello"])
 
+    def test_add_memories_queued(
+        self, client: TestClient, mock_engine: AsyncMock
+    ) -> None:
+        from mem_zero.memory_engine import QueuedIds
+
+        mock_engine.add.return_value = QueuedIds()
+        resp = _call_tool(
+            client, "/mcp/my-project/http/john", "add_memories", {"text": "hello"}
+        )
+        payload = json.loads(resp.json()["result"]["content"][0]["text"])
+        assert payload["queued"] is True
+        assert payload["stored"] == 0
+        assert "recovers" in payload["note"]
+
     def test_sequential_requests_use_own_context(
         self, client: TestClient, mock_engine: AsyncMock
     ) -> None:

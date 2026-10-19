@@ -28,6 +28,7 @@ def mock_engine() -> AsyncMock:
     engine.cleanup_text.return_value = {"cleaned": 2, "split_into_multiple": 1, "skipped": 8}
     engine.consolidate.return_value = {"clusters": 3, "memories_removed": 6, "memories_created": 3}
     engine.close = AsyncMock()
+    engine.pending_count.return_value = 0
     return engine
 
 
@@ -79,10 +80,16 @@ class TestHealthEndpoint:
         assert data["status"] == "ok"
         assert "version" in data
 
+    def test_reports_pending_count(self, client, mock_engine: AsyncMock) -> None:
+        mock_engine.pending_count.return_value = 3
+        assert client.get("/health").json()["pending"] == 3
+
     def test_degraded_qdrant(self, client, mock_engine: AsyncMock) -> None:
         mock_engine.health_check.side_effect = Exception("connection refused")
+        mock_engine.pending_count.return_value = 2
         resp = client.get("/health")
         assert resp.status_code == 503
+        assert resp.json() == {"detail": "Service degraded", "pending": 2}
 
     def test_degraded_llm(self, client, mock_backend: MagicMock) -> None:
         mock_backend.health_ping.return_value = False
@@ -359,3 +366,17 @@ class TestInputBounds:
         )
         assert resp.status_code == 200
         assert mock_engine.add.call_args.args[1] == "john_doe-1"
+
+
+class TestQueuedAdd:
+    def test_queued_add_response(self, client, mock_engine: AsyncMock) -> None:
+        from mem_zero.memory_engine import QueuedIds
+
+        mock_engine.add.return_value = QueuedIds()
+        resp = client.post("/api/v1/projects/my-project/memories", json={"text": "hello"})
+        assert resp.status_code == 200
+        assert resp.json() == {"stored": 0, "ids": [], "queued": True}
+
+    def test_normal_add_response_unchanged(self, client) -> None:
+        resp = client.post("/api/v1/projects/my-project/memories", json={"text": "hello"})
+        assert resp.json() == {"stored": 1, "ids": ["abc-123"]}

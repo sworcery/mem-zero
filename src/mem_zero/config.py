@@ -91,6 +91,7 @@ class Config:
     dashboard_pass: str | None = None
 
     stats_path: str = "/mem-zero/storage/diagnostics.json"
+    pending_dir: str = "/mem-zero/storage/pending"
     diagnostics_enabled: bool = False
 
     @staticmethod
@@ -172,6 +173,7 @@ class Config:
             dashboard_user=_opt("DASHBOARD_USER"),
             dashboard_pass=_opt("DASHBOARD_PASS"),
             stats_path=_str("STATS_PATH", "/mem-zero/storage/diagnostics.json"),
+            pending_dir=_str("PENDING_DIR", "/mem-zero/storage/pending"),
             diagnostics_enabled=os.environ.get("DIAGNOSTICS_ENABLED", "false").lower()
             in ("1", "true", "yes"),
         )

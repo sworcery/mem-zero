@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from mem_zero.backends import (
+    BackendUnavailable,
     FallbackBackend,
     LLMBackend,
     OllamaBackend,
@@ -494,3 +495,82 @@ class TestCreateBackendDimensions:
     def test_from_env_dims_unset_is_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("EMBEDDER_DIMENSIONS", raising=False)
         assert Config.from_env().embedding_dimensions is None
+
+
+class TestPrimaryOnly:
+    @pytest.fixture
+    def primary(self) -> AsyncMock:
+        p = AsyncMock(spec=LLMBackend)
+        p.embedding_dimensions = 768
+        p.generate.return_value = '["fact"]'
+        p.embed.return_value = [[0.1] * 768]
+        return p
+
+    @pytest.fixture
+    def factory(self) -> MagicMock:
+        return MagicMock()
+
+    @pytest.mark.asyncio
+    async def test_failure_trips_breaker_and_never_loads_fallback(
+        self, primary: AsyncMock, factory: MagicMock
+    ) -> None:
+        import httpx
+
+        primary.generate.side_effect = httpx.ConnectError("down")
+        backend = FallbackBackend(primary, factory, cooldown_seconds=30.0)
+        with pytest.raises(BackendUnavailable):
+            await backend.generate_primary("s", "u")
+        factory.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cooldown_raises_without_calling_primary(
+        self, primary: AsyncMock, factory: MagicMock
+    ) -> None:
+        import httpx
+
+        primary.embed.side_effect = httpx.ConnectError("down")
+        backend = FallbackBackend(primary, factory, cooldown_seconds=30.0)
+        with pytest.raises(BackendUnavailable):
+            await backend.embed_primary(["x"])
+        primary.embed.reset_mock()
+        with pytest.raises(BackendUnavailable):
+            await backend.embed_primary(["x"])
+        primary.embed.assert_not_called()
+        factory.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_non_outage_error_propagates_untouched(
+        self, primary: AsyncMock, factory: MagicMock
+    ) -> None:
+        primary.generate.side_effect = KeyError("message")
+        backend = FallbackBackend(primary, factory, cooldown_seconds=30.0)
+        with pytest.raises(KeyError):
+            await backend.generate_primary("s", "u")
+        # Not an outage, so the breaker stays closed.
+        primary.generate.side_effect = None
+        assert await backend.generate_primary("s", "u") == '["fact"]'
+
+    @pytest.mark.asyncio
+    async def test_success_clears_degraded_state(
+        self, primary: AsyncMock, factory: MagicMock
+    ) -> None:
+        backend = FallbackBackend(primary, factory, cooldown_seconds=0.0)
+        backend._gen.using_fallback = True
+        await backend.generate_primary("s", "u")
+        assert backend.is_degraded is False
+
+    @pytest.mark.asyncio
+    async def test_openai_maps_outage_to_unavailable(self) -> None:
+        import httpx
+
+        b = OpenAIBackend(api_key="k")
+        b.generate = AsyncMock(side_effect=httpx.ConnectError("down"))  # type: ignore[method-assign]
+        with pytest.raises(BackendUnavailable):
+            await b.generate_primary("s", "u")
+        req = httpx.Request("POST", "http://x")
+        bad = httpx.HTTPStatusError(
+            "bad", request=req, response=httpx.Response(400, request=req)
+        )
+        b.embed = AsyncMock(side_effect=bad)  # type: ignore[method-assign]
+        with pytest.raises(httpx.HTTPStatusError):
+            await b.embed_primary(["x"])

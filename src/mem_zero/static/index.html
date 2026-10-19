@@ -2276,7 +2276,11 @@
     btn.textContent = 'Adding…';
     try {
       const res = await API.add(S.activeSlug, text);
-      toast(`Stored ${res.stored} memor${res.stored !== 1 ? 'ies' : 'y'}`, 'ok');
+      if (res.queued) {
+        toast('Note queued; it will be processed when the LLM backend is back', 'ok');
+      } else {
+        toast(`Stored ${res.stored} memor${res.stored !== 1 ? 'ies' : 'y'}`, 'ok');
+      }
       $('proj-add-text').value = '';
       await loadMemories();
       // Refresh the authoritative memory_count from /api/v1/projects; deriving

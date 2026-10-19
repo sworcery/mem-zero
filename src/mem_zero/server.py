@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import secrets
 from collections.abc import AsyncIterator, Awaitable
@@ -8,6 +10,7 @@ from pathlib import Path as FilePath
 from typing import TypeVar
 
 from fastapi import FastAPI, HTTPException, Path, Query, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError as PydanticValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -23,6 +26,7 @@ from .memory_engine import (
     LLMError,
     MaintenanceInProgressError,
     MemoryEngine,
+    QueuedIds,
     validate_memory_id,
 )
 from .models import MemoryCreate, MemoryRecord, ProjectInfo, SearchRequest
@@ -46,10 +50,36 @@ async def _project_counts() -> dict[str, int]:
 stats.set_project_count_provider(_project_counts)
 
 
+_REPLAY_INTERVAL_S = 30.0
+
+
+async def _replay_loop(stop: asyncio.Event) -> None:
+    while not stop.is_set():
+        try:
+            if (
+                await engine.pending_count()
+                and await backend.health_ping()
+                and await engine.health_check()
+            ):
+                await engine.replay_pending(stop)
+        except Exception:
+            logger.exception("Pending-queue replay round failed")
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=_REPLAY_INTERVAL_S)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await stats.start_flush_loop()
+    stop = asyncio.Event()
+    replay_task = asyncio.create_task(_replay_loop(stop))
     yield
+    stop.set()
+    # An in-flight replay may be mid LLM call; cancelling is safe because the
+    # file is only deleted after success and replay dedups.
+    replay_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await replay_task
     await stats.shutdown()
     await engine.close()
 
@@ -218,8 +248,8 @@ async def _run(coro: Awaitable[T], *, op: str) -> T:
         raise HTTPException(status_code=500, detail=f"Internal error in {op}") from exc
 
 
-@app.get("/health")
-async def health() -> dict[str, object]:
+@app.get("/health", response_model=None)
+async def health() -> dict[str, object] | JSONResponse:
     services: dict[str, bool] = {}
     try:
         await engine.health_check()
@@ -228,9 +258,17 @@ async def health() -> dict[str, object]:
         services["qdrant"] = False
     services["llm"] = await backend.health_ping()
     overall = services["qdrant"] and services["llm"]
+    pending = await engine.pending_count()
     if not overall:
-        raise HTTPException(status_code=503, detail="Service degraded")
-    return {"status": "ok", "version": app.version, "services": services}
+        return JSONResponse(
+            status_code=503, content={"detail": "Service degraded", "pending": pending}
+        )
+    return {
+        "status": "ok",
+        "version": app.version,
+        "services": services,
+        "pending": pending,
+    }
 
 
 @app.get("/debug/config")
@@ -308,6 +346,8 @@ async def create_memory(
     ids = await _run(
         engine.add(slug, user_id, [body.text], body.metadata or None), op="add_memory"
     )
+    if isinstance(ids, QueuedIds):
+        return {"stored": 0, "ids": [], "queued": True}
     return {"stored": len(ids), "ids": ids}
 
 

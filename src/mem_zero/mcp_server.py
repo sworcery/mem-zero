@@ -13,7 +13,7 @@ from mcp.server.streamable_http import StreamableHTTPServerTransport
 from pydantic import Field
 
 from .config import validate_slug, validate_user_id
-from .memory_engine import MemoryEngine, validate_memory_id
+from .memory_engine import MemoryEngine, QueuedIds, validate_memory_id
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +66,16 @@ async def add_memories(text: Annotated[str, Field(min_length=1, max_length=50000
     project, user = _get_context()
     engine = _get_engine()
     ids = await engine.add(project, user, [text])
+    if isinstance(ids, QueuedIds):
+        return json.dumps(
+            {
+                "stored": 0,
+                "ids": [],
+                "queued": True,
+                "note": "The LLM backend is unavailable; this note was saved and "
+                "will be processed when it recovers.",
+            }
+        )
     return json.dumps({"stored": len(ids), "ids": ids})
 
 

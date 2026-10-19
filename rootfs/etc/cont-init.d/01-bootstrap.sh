@@ -35,6 +35,7 @@ env_vars=(
     DASHBOARD_PASS
     DIAGNOSTICS_ENABLED
     STATS_PATH
+    PENDING_DIR
     PUID
     PGID
     HOST
