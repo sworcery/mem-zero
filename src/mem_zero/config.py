@@ -52,6 +52,9 @@ class Config:
 
     # Ollama settings (used when llm_backend=ollama)
     ollama_base_url: str = "http://127.0.0.1:11434"
+    # Sent per request, so it overrides the Ollama server's own OLLAMA_KEEP_ALIVE.
+    # Empty leaves it out of the request and the server default applies.
+    ollama_keep_alive: str = "30m"
     llm_model: str = "qwen2.5:7b"
     embedder_model: str = "nomic-embed-text"
     # None = "not explicitly set": create_backend picks the right default per
@@ -146,6 +149,7 @@ class Config:
             qdrant_api_key=_opt("QDRANT_API_KEY"),
             llm_backend=backend,
             ollama_base_url=_ensure_scheme(_str("OLLAMA_BASE_URL", "http://127.0.0.1:11434")),
+            ollama_keep_alive=_str("OLLAMA_KEEP_ALIVE", "30m").strip(),
             llm_model=_str("LLM_MODEL", "qwen2.5:7b"),
             embedder_model=_str("EMBEDDER_MODEL", "nomic-embed-text"),
             embedding_dimensions=_opt_int("EMBEDDER_DIMENSIONS", minimum=1),

@@ -324,6 +324,7 @@ class TestOllamaRetry:
         b._dims = 768
         import asyncio
         b._semaphore = asyncio.Semaphore(2)
+        b._keep_alive = {"keep_alive": "30m"}
         return b
 
     @staticmethod
@@ -407,6 +408,60 @@ class TestOllamaRetry:
         out = await b.generate("s", "u")
         assert out == '{"facts": []}'
         assert b._http.post.call_args.kwargs["json"]["think"] is False
+
+
+
+class TestOllamaKeepAlive:
+    @staticmethod
+    async def _bodies(backend: OllamaBackend) -> tuple[dict, dict]:
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.raise_for_status = MagicMock()
+        ok.json.return_value = {"message": {"content": "{}"}, "embeddings": [[0.1]]}
+        backend._http = AsyncMock()
+        backend._http.post.return_value = ok
+        await backend.generate("s", "u")
+        await backend.embed(["x"])
+        chat, emb = (c.kwargs["json"] for c in backend._http.post.call_args_list)
+        return chat, emb
+
+    @pytest.mark.asyncio
+    async def test_default_is_30m_string(self) -> None:
+        chat, emb = await self._bodies(OllamaBackend())
+        assert chat["keep_alive"] == "30m"
+        assert emb["keep_alive"] == "30m"
+
+    @pytest.mark.asyncio
+    async def test_minus_one_is_sent_as_int(self) -> None:
+        # Ollama rejects the string "-1" (a Go duration needs a unit).
+        chat, emb = await self._bodies(OllamaBackend(keep_alive="-1"))
+        assert chat["keep_alive"] == -1 and isinstance(chat["keep_alive"], int)
+        assert emb["keep_alive"] == -1 and isinstance(emb["keep_alive"], int)
+
+    @pytest.mark.asyncio
+    async def test_duration_is_sent_as_string(self) -> None:
+        chat, emb = await self._bodies(OllamaBackend(keep_alive="1h"))
+        assert chat["keep_alive"] == "1h"
+        assert emb["keep_alive"] == "1h"
+
+    @pytest.mark.asyncio
+    async def test_decimal_seconds_sent_as_number(self) -> None:
+        chat, emb = await self._bodies(OllamaBackend(keep_alive="1.5"))
+        assert chat["keep_alive"] == 1.5
+        assert emb["keep_alive"] == 1.5
+
+    @pytest.mark.asyncio
+    async def test_invalid_value_falls_back_to_30m(self) -> None:
+        # A value Ollama can't parse would make every request fail with 400.
+        chat, emb = await self._bodies(OllamaBackend(keep_alive="30 min"))
+        assert chat["keep_alive"] == "30m"
+        assert emb["keep_alive"] == "30m"
+
+    @pytest.mark.asyncio
+    async def test_empty_leaves_field_out(self) -> None:
+        chat, emb = await self._bodies(OllamaBackend(keep_alive=""))
+        assert "keep_alive" not in chat
+        assert "keep_alive" not in emb
 
 
 class TestOpenAIEmbed:

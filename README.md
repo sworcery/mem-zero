@@ -544,6 +544,7 @@ All settings are via environment variables.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama API URL |
+| `OLLAMA_KEEP_ALIVE` | `30m` | How long Ollama keeps the models loaded after each mem-zero request: a duration (`30m`, `1h`), a number of seconds, or `-1` to keep them loaded. It is sent per request, so it overrides the Ollama server's own `OLLAMA_KEEP_ALIVE`; set it empty to use the server's value |
 | `LLM_MODEL` | `qwen2.5:7b` | Model for fact extraction and dedup |
 | `EMBEDDER_MODEL` | `nomic-embed-text` | Embedding model |
 | `OLLAMA_MAX_CONCURRENT` | `2` | Max concurrent requests to Ollama |

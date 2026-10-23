@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -135,6 +136,10 @@ class BundledBackend(LLMBackend):
         return True
 
 
+_KEEP_ALIVE_NUMBER = re.compile(r"-?\d+(\.\d+)?")
+_GO_DURATION = re.compile(r"-?(\d+(\.\d+)?(ns|us|µs|ms|s|m|h))+")
+
+
 class OllamaBackend(LLMBackend):
 
     def __init__(
@@ -144,12 +149,27 @@ class OllamaBackend(LLMBackend):
         embed_model: str = "nomic-embed-text",
         dimensions: int = 768,
         max_concurrent: int = 2,
+        keep_alive: str = "30m",
     ) -> None:
         self._http = httpx.AsyncClient(base_url=base_url, timeout=30.0)
         self._llm_model = llm_model
         self._embed_model = embed_model
         self._dims = dimensions
         self._semaphore = asyncio.Semaphore(max_concurrent)
+        # Ollama parses a string keep_alive as a Go duration and rejects "-1"
+        # without a unit, so plain numbers (seconds; -1 = forever) go as JSON
+        # numbers. Empty omits the field so the server default applies. Any
+        # other malformed value would make every request 400, so warn and
+        # fall back to the default instead.
+        value: int | float | str
+        if _KEEP_ALIVE_NUMBER.fullmatch(keep_alive):
+            value = float(keep_alive) if "." in keep_alive else int(keep_alive)
+        elif not keep_alive or _GO_DURATION.fullmatch(keep_alive):
+            value = keep_alive
+        else:
+            logger.warning("Invalid OLLAMA_KEEP_ALIVE %r; using 30m", keep_alive)
+            value = "30m"
+        self._keep_alive: dict[str, object] = {"keep_alive": value} if value != "" else {}
         logger.info("Ollama backend: max_concurrent=%d", max_concurrent)
 
     @property
@@ -212,7 +232,7 @@ class OllamaBackend(LLMBackend):
                     "think": False,
                     # Keep the model resident so back-to-back calls don't pay a
                     # cold reload (the source of the worst-case latency spikes).
-                    "keep_alive": "30m",
+                    **self._keep_alive,
                     "options": {
                         # Match the other backends; low temperature is better for
                         # the JSON-constrained extraction/dedup responses.
@@ -234,7 +254,7 @@ class OllamaBackend(LLMBackend):
                 json={
                     "model": self._embed_model,
                     "input": texts,
-                    "keep_alive": "30m",
+                    **self._keep_alive,
                 },
                 # Batched inputs on a cold model can exceed the client default.
                 timeout=120.0,
@@ -556,6 +576,7 @@ def create_backend(
             embed_model=config.embedder_model,
             dimensions=config.embedding_dimensions or _DEFAULT_LOCAL_EMBED_DIMS,
             max_concurrent=config.ollama_max_concurrent,
+            keep_alive=config.ollama_keep_alive,
         )
 
         def _make_fallback() -> BundledBackend:

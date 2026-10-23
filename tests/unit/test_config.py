@@ -109,6 +109,19 @@ class TestConfig:
         assert config.ollama_base_url == "https://ollama.example.com"
 
 
+    def test_keep_alive_defaults_to_30m(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("OLLAMA_KEEP_ALIVE", raising=False)
+        assert Config.from_env().ollama_keep_alive == "30m"
+
+    def test_keep_alive_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OLLAMA_KEEP_ALIVE", " -1 ")
+        assert Config.from_env().ollama_keep_alive == "-1"
+
+    def test_keep_alive_empty_is_kept_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OLLAMA_KEEP_ALIVE", "")
+        assert Config.from_env().ollama_keep_alive == ""
+
+
 class TestEnsureScheme:
     def test_adds_http_when_missing(self) -> None:
         assert _ensure_scheme("192.0.2.10:11434") == "http://192.0.2.10:11434"
