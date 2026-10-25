@@ -2,18 +2,18 @@
   <img src="banner.png" alt="mem-zero" />
 </p>
 
-Self-hosted memory server for AI coding assistants. Store, search, and manage persistent context across sessions — so your tools remember what happened last week without stuffing everything into the context window.
+Self-hosted memory server for AI coding assistants. Store, search, and manage persistent context across sessions, so your tools remember what happened last week without stuffing everything into the context window.
 
 Each project gets its own isolated vector collection. When you store a memory, an LLM extracts atomic facts, deduplicates against existing memories, and embeds them for semantic search. The result is a clean, searchable memory store per project that any MCP client or HTTP-capable tool can query.
 
 ## Why?
 
-AI coding assistants forget everything between sessions. Every new conversation starts from scratch — you re-explain decisions, re-discover bugs, repeat yourself. mem-zero fixes that by giving your assistant persistent project memory:
+AI coding assistants forget everything between sessions. Every new conversation starts from scratch. You re-explain decisions, re-discover bugs, repeat yourself. mem-zero fixes that by giving your assistant persistent project memory:
 
-- **Session 50 knows what session 1 figured out** — bugs fixed, decisions made, preferences learned
-- **Selective retrieval** — semantic search pulls in only what's relevant, not entire conversation logs
-- **Project-isolated** — memories from one project never leak into another
-- **Self-contained** — runs as a single Docker container with an embedded LLM, no external dependencies required
+- **Session 50 knows what session 1 figured out**: bugs fixed, decisions made, preferences learned
+- **Selective retrieval**: semantic search pulls in only what's relevant, not entire conversation logs
+- **Project-isolated**: memories from one project never leak into another
+- **Self-contained**: runs as a single Docker container with an embedded LLM, no external dependencies required
 
 ## Quick start
 
@@ -25,7 +25,7 @@ docker run -d \
   ghcr.io/sworcery/mem-zero:latest
 ```
 
-That's it. The bundled LLM handles fact extraction and embeddings out of the box. First startup downloads models (~2 GB) and takes a few minutes — subsequent starts are fast.
+That's it. The bundled LLM handles fact extraction and embeddings out of the box. First startup downloads models (~2 GB) and takes a few minutes; subsequent starts are fast.
 
 ## How it works
 
@@ -107,7 +107,7 @@ The project slug must start with a letter or number, followed by lowercase alpha
 </details>
 
 <details>
-<summary><b>Other coding agents — Codex, Copilot, Goose, opencode, OpenClaude, Qwen Code, Grok Build</b></summary>
+<summary><b>Other coding agents: Codex, Copilot, Goose, opencode, OpenClaude, Qwen Code, Grok Build</b></summary>
 
 mem-zero exposes a standard streamable-HTTP MCP endpoint with Bearer auth, so any
 MCP-capable agent connects without server-side changes. Everything below points at
@@ -126,7 +126,7 @@ export MEM_ZERO_API_KEY="your-key"
 ### OpenAI Codex CLI
 
 `~/.codex/config.toml` (or `.codex/config.toml` for a single repo). A `url` key
-implies streamable HTTP — there is no transport field to set:
+implies streamable HTTP. There is no transport field to set:
 
 ```toml
 [mcp_servers.mem-zero]
@@ -136,7 +136,7 @@ bearer_token_env_var = "MEM_ZERO_API_KEY"
 
 ### GitHub Copilot (VS Code, Visual Studio, JetBrains, Xcode)
 
-`.vscode/mcp.json` — prompts once for the key, then stores it:
+`.vscode/mcp.json`, which prompts once for the key and then stores it:
 
 ```json
 {
@@ -173,7 +173,7 @@ bearer_token_env_var = "MEM_ZERO_API_KEY"
 
 ### Goose
 
-`~/.config/goose/config.yaml` — headers support `${VAR}` substitution:
+`~/.config/goose/config.yaml`, where headers support `${VAR}` substitution:
 
 ```yaml
 extensions:
@@ -189,7 +189,7 @@ extensions:
 
 ### OpenClaude
 
-Not to be confused with opencode above — OpenClaude is a Claude Code-compatible CLI
+Not to be confused with opencode above. OpenClaude is a Claude Code-compatible CLI
 that runs against any provider, including a local Ollama. Its config is Claude
 Code's, so `--scope project` writes the same `.mcp.json`:
 
@@ -205,7 +205,7 @@ an Ollama model, with mem-zero's Ollama backend doing extraction and embeddings.
 
 ### Qwen Code
 
-`settings.json` — note it uses `httpUrl` (not `url`) for streamable HTTP:
+`settings.json`; note it uses `httpUrl` (not `url`) for streamable HTTP:
 
 ```json
 {
@@ -238,7 +238,7 @@ headers = { "Authorization" = "Bearer ${MEM_ZERO_API_KEY}" }
 
 ### Editors with their own MCP support
 
-Cursor, Windsurf, Cline, Zed, and JetBrains Junie each have an MCP settings panel —
+Cursor, Windsurf, Cline, Zed, and JetBrains Junie each have an MCP settings panel:
 add the same URL and `Authorization: Bearer` header. This is also how you use
 mem-zero alongside a non-Anthropic model such as `grok-code-fast-1`: the editor
 handles MCP, the model just sees the tools.
@@ -251,7 +251,7 @@ Agents without MCP support (Aider, for example) can still use the REST API or th
 ## Teaching your agent to use memory
 
 Connecting the server only makes the tools *available*. Agents won't store or
-search memories on their own — they need instructions. Put these in the file your
+search memories on their own. They need instructions. Put these in the file your
 agent reads at the repo root: **`AGENTS.md`** works for Codex, Copilot, Cursor,
 Windsurf, Amp, Zed, Junie, Aider, Devin, and Claude Code; Claude Code and Grok
 Build also read `CLAUDE.md`, and Gemini CLI uses `GEMINI.md`.
@@ -305,7 +305,7 @@ mem-zero supports three LLM backends for fact extraction and deduplication.
 | Backend | LLM | Embeddings | Setup |
 |---------|-----|------------|-------|
 | **ollama** (recommended) | Any Ollama model | Any Ollama embedding model | Set `OLLAMA_BASE_URL` |
-| **bundled** (default) | Qwen2.5-3B (built-in, CPU) | nomic-embed-text via fastembed | Zero config — just run the container |
+| **bundled** (default) | Qwen2.5-3B (built-in, CPU) | nomic-embed-text via fastembed | Zero config: just run the container |
 | **openai** (beta) | Any OpenAI-compatible API | Any OpenAI-compatible embeddings | Set `OPENAI_API_KEY` |
 
 **Auto-detection:** If `LLM_BACKEND` is not set, the backend is chosen automatically:
@@ -344,7 +344,7 @@ docker run -d \
   ghcr.io/sworcery/mem-zero:latest
 ```
 
-Works with any OpenAI-compatible API (OpenAI, Groq, Together, etc.) by setting `OPENAI_BASE_URL`. This backend has not been extensively tested — if you encounter issues, please report them.
+Works with any OpenAI-compatible API (OpenAI, Groq, Together, etc.) by setting `OPENAI_BASE_URL`. This backend has not been extensively tested. If you encounter issues, please report them.
 
 </details>
 
@@ -357,7 +357,7 @@ Every 30 seconds, if the queue is not empty and the backend is healthy again, qu
 ## Web dashboard
 
 <details>
-<summary><b>Management UI at the root URL — health, projects, memories, charts</b></summary>
+<summary><b>Management UI at the root URL: health, projects, memories, charts</b></summary>
 
 A management UI is served at the root URL (`http://your-host:8765/`). From the dashboard you can:
 
@@ -404,7 +404,7 @@ For MCP clients, add the header to your client config. In Claude Code's `.mcp.js
 
 A query parameter (`?api_key=your-key`) is also accepted for clients that can't set headers.
 
-If `API_KEY` is not set, all endpoints are open — suitable for trusted networks.
+If `API_KEY` is not set, all endpoints are open, suitable for trusted networks.
 
 The dashboard has its own basic auth (`DASHBOARD_USER`/`DASHBOARD_PASS`) since browsers need a login prompt rather than Bearer tokens.
 
@@ -455,15 +455,15 @@ The export format includes project metadata, timestamps, and all memory content.
 <details>
 <summary><b>How to get good memories out of your assistant</b></summary>
 
-mem-zero supplements conversations — it's not a transcript. Store things a future session would need that aren't obvious from reading the code or git history.
+mem-zero supplements conversations; it's not a transcript. Store things a future session would need that aren't obvious from reading the code or git history.
 
 **Search first.** At the start of every conversation, search mem-zero for prior context. A well-maintained memory store means you never start from scratch.
 
-**Store decisions, not play-by-play.** "Chose PostgreSQL over Redis because we need ACID transactions" is useful. "Updated line 42 in server.py" is not — that's what `git log` is for.
+**Store decisions, not play-by-play.** "Chose PostgreSQL over Redis because we need ACID transactions" is useful. "Updated line 42 in server.py" is not. That's what `git log` is for.
 
 **Store dead ends.** If you spend 30 minutes debugging something that turned out to be a red herring, store that. It prevents future sessions from going down the same path.
 
-**Quality over quantity.** Each memory should be a complete, self-contained statement. One memory per logical change or decision — not one per file touched. Fragments like "Root cause" or "Solution" without context are useless noise.
+**Quality over quantity.** Each memory should be a complete, self-contained statement. One memory per logical change or decision, not one per file touched. Fragments like "Root cause" or "Solution" without context are useless noise.
 
 **Let the code speak.** Don't store function signatures, file structure, what a method does, or test results. The codebase is the authoritative source for those. Store the *why*, not the *what*.
 
@@ -510,15 +510,15 @@ All settings are via environment variables.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `API_KEY` | — | API key for MCP and REST endpoints (disabled if empty) |
+| `API_KEY` | none | API key for MCP and REST endpoints (disabled if empty) |
 | `LLM_BACKEND` | auto-detect | `bundled`, `ollama`, or `openai` |
 | `EMBEDDER_DIMENSIONS` | per backend | Optional. Unset means the backend default: 768 for Ollama and bundled, the model's native size for OpenAI (1536 for `text-embedding-3-small`). Set only to override |
 | `EXTRACT_MAX_CHARS` | `24000` | Inputs longer than this are still processed but a warning is logged, since the LLM context will truncate the tail |
 | `COLLECTION_PREFIX` | `mem-zero` | Qdrant collection name prefix |
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `8765` | Server port |
-| `DASHBOARD_USER` | — | Dashboard login username (auth disabled if empty) |
-| `DASHBOARD_PASS` | — | Dashboard login password |
+| `DASHBOARD_USER` | none | Dashboard login username (auth disabled if empty) |
+| `DASHBOARD_PASS` | none | Dashboard login password |
 | `DIAGNOSTICS_ENABLED` | `false` | Enable performance and accuracy metrics on the dashboard |
 | `RERANK_ENABLED` | `false` | Rerank search results with a CPU cross-encoder for sharper relevance scores (~0.5s extra per search, ~200 MB RAM) |
 | `RERANK_MODEL` | `Xenova/ms-marco-MiniLM-L-6-v2` | fastembed cross-encoder model used when reranking |
@@ -553,7 +553,7 @@ All settings are via environment variables.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `OPENAI_API_KEY` | — | API key (required) |
+| `OPENAI_API_KEY` | none | API key (required) |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | API base URL |
 | `OPENAI_MODEL` | `gpt-4o-mini` | Chat model |
 | `OPENAI_EMBED_MODEL` | `text-embedding-3-small` | Embedding model |
@@ -564,8 +564,8 @@ All settings are via environment variables.
 |----------|---------|---------|
 | `QDRANT_HOST` | `127.0.0.1` | Qdrant host (bundled) |
 | `QDRANT_PORT` | `6333` | Qdrant port |
-| `QDRANT_URL` | — | Full Qdrant URL (overrides host/port) |
-| `QDRANT_API_KEY` | — | Qdrant API key (if using external) |
+| `QDRANT_URL` | none | Full Qdrant URL (overrides host/port) |
+| `QDRANT_API_KEY` | none | Qdrant API key (if using external) |
 
 </details>
 
@@ -576,10 +576,10 @@ All settings are via environment variables.
 
 The container bundles everything into a single image using s6-overlay for process supervision:
 
-- **Qdrant** — embedded vector database, data persisted to `/mem-zero/storage`
-- **FastAPI** — HTTP server handling MCP transport, REST API, and static dashboard
-- **Qwen2.5-3B** — bundled LLM for fact extraction and dedup (CPU-only, ~1.8 GB RAM)
-- **fastembed** — bundled embedding model (nomic-embed-text, ~270 MB)
+- **Qdrant**: embedded vector database, data persisted to `/mem-zero/storage`
+- **FastAPI**: HTTP server handling MCP transport, REST API, and static dashboard
+- **Qwen2.5-3B**: bundled LLM for fact extraction and dedup (CPU-only, ~1.8 GB RAM)
+- **fastembed**: bundled embedding model (nomic-embed-text, ~270 MB)
 
 External LLMs (Ollama, OpenAI) are supported as alternatives. When using Ollama, the bundled embedder serves as an automatic fallback for search and cleanup if Ollama is unreachable (768-dimension collections only). Adds are queued instead.
 
@@ -588,7 +588,7 @@ Project isolation is enforced at the Qdrant collection level. Each project slug 
 ### Permissions
 
 The Qdrant and mem-zero processes run as an unprivileged account (uid 99 /
-gid 100 by default — the Unraid convention), not root. On the first start
+gid 100 by default, the Unraid convention), not root. On the first start
 after upgrading, the container chowns `/mem-zero/storage` to that id once
 (a sentinel file skips the walk on later boots; it can take a while on large
 volumes). Override with `PUID` / `PGID`, or set `PUID=0` to run as root like
@@ -602,4 +602,4 @@ An Unraid Docker template is included at `unraid-template.xml`. Install it throu
 
 ## License
 
-AGPL-3.0 — see [LICENSE](LICENSE).
+Copyright (C) 2026 Gadsden LLC. Licensed under the GNU Affero General Public License v3.0 only (AGPL-3.0-only); see [LICENSE](LICENSE).
