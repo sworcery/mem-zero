@@ -21,7 +21,7 @@ attrs==26.1.0
     # via
     #   jsonschema
     #   referencing
-certifi==2026.7.22
+certifi==2026.10.23
     # via
     #   httpcore
     #   httpx
@@ -45,7 +45,7 @@ diskcache==5.6.3
     # via llama-cpp-python
 fastapi==0.141.1
     # via mem-zero (pyproject.toml)
-fastembed==0.8.0
+fastembed==0.9.1
     # via mem-zero (pyproject.toml)
 filelock==3.32.3
     # via huggingface-hub
@@ -117,7 +117,7 @@ packaging==26.3
     # via
     #   huggingface-hub
     #   onnxruntime
-pillow==12.3.0
+pillow==13.0.0
     # via fastembed
 portalocker==3.2.0
     # via qdrant-client
