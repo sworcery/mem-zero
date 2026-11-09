@@ -17,7 +17,7 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     # <2 is load-bearing: mcp 2.0 restructured the package and removed
     # mcp.server.fastmcp, which mcp_server.py imports.
-    "mcp>=1.9,<2",
+    "mcp>=1.9,<3",
     "qdrant-client>=1.12",
     "httpx>=0.28",
     "pydantic>=2.10",
